@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+	<title id="title">Brauer graph tree icon candidate</title>
+	<desc id="desc">A two-centre Dynkin-like tree with one lower-right leg extended.</desc>
+	<rect width="128" height="128" rx="24" fill="#fafaf7" />
+	<g fill="none" stroke="#1a1a1a" stroke-width="7.5" stroke-linecap="round">
+		<path d="M48 64L80 64" />
+		<path d="M48 64L28 34" />
+		<path d="M48 64L28 94" />
+		<path d="M80 64L100 34" />
+		<path d="M80 64L98 94" />
+		<path d="M94 94L122 94" />
+	</g>
+	<g fill="#fafaf7" stroke="#1a1a1a" stroke-width="6.5">
+		<circle cx="48" cy="64" r="8.5" />
+		<circle cx="80" cy="64" r="8.5" />
+		<circle cx="28" cy="34" r="8.5" />
+		<circle cx="100" cy="34" r="8.5" />
+		<circle cx="28" cy="94" r="8.5" />
+		<circle cx="94" cy="94" r="8.5" />
+		<circle cx="122" cy="94" r="8.5" />
+	</g>
+	<g fill="#2a5caa">
+		<circle cx="48" cy="64" r="4" />
+		<circle cx="80" cy="64" r="4" />
+	</g>
+</svg>
