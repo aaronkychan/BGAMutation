@@ -29,3 +29,7 @@ export function orbifoldEndId(h: number): string {
 export function starParentId(index: number): string {
 	return `s-${index}`;
 }
+
+export function orderingArrowId(from: number, to: number): string {
+	return `arr-${halfEdgeTag(from)}-${halfEdgeTag(to)}`;
+}
