@@ -2,6 +2,13 @@
 
 The save/load behavior is specified inside Stage 1 Graph Presentation in the original spec. This focused file extracts that behavior for implementation.
 
+Save/load is part of the same graph-editing state model used by rendering, Canvas Edit, and mutation:
+
+- Save must preserve current Cytoscape node positions, including user-adjusted anchor and orbifold-end positions.
+- Save must preserve ordinary-edge Bezier controls, including controls created by Arm-Tangent Bezier Construction and controls later changed by edge editing.
+- Save must preserve enough display state to restore the visible graph without forcing a fresh initial layout.
+- Load must restore saved/user-edited state as authoritative. It must not recompute generated star positions or Bezier controls unless the saved file lacks that data.
+
 ### Save / Load (`src/lib/io/`)
 
 **Save**: "Save current" → `Modal.svelte` prompts for a label → serialise:

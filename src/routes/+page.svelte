@@ -11,15 +11,16 @@
 	let renderOptions = $state<RenderOptions>(defaultRenderOptions);
 	let validationErrors = $state<{ field: string; message: string }[]>([]);
 
-	function drawGraph(graph: BrauerGraph, options: RenderOptions) {
+	function drawGraph(graph: BrauerGraph, options: RenderOptions): boolean {
 		const errors = validateBrauerGraph(graph);
 		validationErrors = errors;
-		if (errors.length > 0) return;
+		if (errors.length > 0) return false;
 
 		graphState.graph = graph;
 		graphState.mode = 'idle';
 		renderOptions = options;
 		drawerOpen = false;
+		return true;
 	}
 
 	function clearGraph() {

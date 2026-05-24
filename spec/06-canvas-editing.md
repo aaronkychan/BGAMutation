@@ -10,6 +10,27 @@ When accordion B ("Edit graph on canvas") is open:
 - There will be a Brauer graph data sotred in the background that keep track of the data shown on the canvas (it may not be a proper valid Brauer graph).
 - Many of the actions to follow require a common last step in their procedure. We call this "tidy up of Brauer graph data". This means going through the entries of the $\sigma_0$, and flag any missing positive integer, and decrease the value of each positive entry $k$ from $k$ to $k-r$, where $r$ is the number of flagged positive integers smaller than $k$, and update $-k$ (if exists in $\sigma_0$) to $-(k-r)$. This will keep all the numbers appeared in $\sigma_0$ being in $\{\pm 1,\pm 2,\ldots, \pm n\}$ for some $n$. Now we renew the number `n` in the stored Brauer graph data to $n$. (During development phase, console log the resulting Brauer graph data.)
 
+### Shared State Invariants
+
+Canvas Edit mode owns user-adjusted graph state that later stages must preserve:
+
+- Current vertex positions, anchor positions, orbifold-end positions, and ordinary-edge Bezier controls are state, not disposable render output.
+- Display-toggle changes, mutation animation cleanup, save/load, and graph updates must not reset these positions or controls.
+- Outside the dedicated **"Adjust emanating angle"** procedure, dragging any node in a star-shaped subgraph translates that star rigidly and does not change arm length.
+- Any procedure that creates or replaces an ordinary connecting edge must either restore saved/user-edited Bezier controls or initialise the edge with Arm-Tangent Bezier Construction from `03-rendering.md`.
+- Every user-visible mutation in Canvas Edit mode records Undo state before changing graph data or Cytoscape elements.
+
+### Edit History and Undo
+
+Canvas Edit mode maintains an undo stack for user-visible edit actions. Before each mutating edit, snapshot enough state to restore:
+
+- current `BrauerGraph` data,
+- Cytoscape JSON including node positions,
+- ordinary edge Bezier anchors/control data,
+- current edge/vertex multiplicity display state that is stored on Cytoscape elements.
+
+The **"Undo"** button is disabled when the stack is empty. When clicked, restore the most recent snapshot, update the InfoBox, and leave Canvas Edit mode active. Undo is required for add/remove vertex, remove arc/half-edge, reconnect arc, add orbifold edge, modify multiplicity, adjust emanating angle, rotate vertex, and curve edits.
+
 ### Edit Buttons
 
 **"Edit curve"**: enters curve-editing mode for `cytoscape-edge-editing`. User can drag anchor handles on connecting curves. Click background to exit.
@@ -18,6 +39,27 @@ When accordion B ("Edit graph on canvas") is open:
 
 - If a vertex node is already selected: open prompt and show current multiplicity assigned on the vertex, ask for a new multiplicity and default the input text to be the current multiplicity. Validate user input and change multiplicity on the vertex.
 - If not: info bar shows _"Click on a vertex to change its multiplicity."_ → user clicks → carry out the same procedure as described in the previous point.
+
+**"Adjust emanating angle"**:
+
+- Info bar shows _"Click a half-edge arm to adjust its emanating angle."_
+- Highlight all half-edge arms.
+- User selects a half-edge arm `he-{s}{h}` attached to vertex node `v-{i}`.
+- After selection, pointer movement rotates the corresponding anchor node around `v-{i}` while preserving the arm length exactly. The user does not need to keep the mouse button held down after selecting the arm.
+- The anchor's allowed angular interval is constrained to its sector between the neighbouring anchors in the cyclic order around `v-{i}`. In the default generated position for a vertex of degree $k$, anchors start at degree $0$ (12 o'clock) and then appear at increments $\theta = 360/k$ in the cyclic-order direction. If the second anchor is initially at $\theta$, then it may move only between degree $1$ and degree $2\theta - 1$.
+- The sector bounds should be computed from the current neighbouring anchor positions, not from the original generated layout, because users may have already adjusted angles.
+- On confirm/release/exit, update the anchor position and apply **Arm-Tangent Bezier Construction** from `03-rendering.md` to every ordinary connecting edge incident to the adjusted anchor.
+- Record the operation for Undo.
+
+**"Rotate vertex"**:
+
+- Info bar shows _"Click a vertex to rotate its half-edge arms."_
+- Highlight all vertex nodes.
+- User selects vertex node `v-{i}`.
+- Rotate the star by cyclically permuting the positions of its anchor nodes in the direction of the current cyclic ordering. Example: if `v-{i}` has clockwise arms `he-p1`, `he-p2`, `he-p3`, then move `u-p1` to the previous position of `u-p2`, `u-p2` to the previous position of `u-p3`, and `u-p3` to the previous position of `u-p1`.
+- Orbifold ends attached to orbifold anchors move rigidly with their corresponding anchor direction.
+- After the permutation, apply **Arm-Tangent Bezier Construction** from `03-rendering.md` to every ordinary connecting edge incident to any moved anchor.
+- Record the operation for Undo.
 
 **"Remove arc/half-edge"**:
 
@@ -58,6 +100,7 @@ When accordion B ("Edit graph on canvas") is open:
 - If `s=p` and `s'=m`, then replace the number `h'` in $\sigma_0$ by `-h`, rename `he-m{h'}` and `u-m{h'}` by `he-m{h}` and `u-m{h}` respectively, and then remove the connecting edge `ce-{h'}` and create a new connecting edge `ce-{h}`.
 - If `s=m` and `s'=p`, then replace the number `h` in $\sigma_0$ by `-h'`, rename `he-m{h}` and `u-m{h}` by `he-m{h'}` and `u-m{h'}` respecitvely, and then remove the connecint edge `ce-{h}` and create a new connecting edge `ce-{h'}`.
 - If `s=m` and `s'=m`, then replace the number `h` and `h'` in $\sigma_0$ by `n+1` and `-(n+1)` respectively, rename `he-m{h}`, `u-m{h}`, `he-m{h'}`, `u-m{h'}` by `he-p{n+1}`, `u-p{n+1}`, `he-m{n+1}`, `u-m{n+1}` respecitvely, create new connecting edge `ce-{n+1}`.
+- Every time this flow creates a new ordinary connecting edge (`ce-{x}`, `ce-{h}`, `ce-{h'}`, or `ce-{n+1}`), initialise its Bezier controls with **Arm-Tangent Bezier Construction** from `03-rendering.md`. In particular, the control direction at each endpoint must agree with the outgoing direction of the half-edge arm attached to that endpoint, and the initial control length is `BEZIER_CONTROL_LENGTH`.
 - Perform tidy up of Brauer graph data.
 - Keyboard (tablet/mobile): selecting an anchor node is understood as initiating this flow.
 

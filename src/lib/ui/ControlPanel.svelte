@@ -14,12 +14,18 @@
 		errors = []
 	}: {
 		graph: BrauerGraph | null;
-		onDraw: (graph: BrauerGraph, options: RenderOptions) => void;
+		onDraw: (graph: BrauerGraph, options: RenderOptions) => boolean;
 		onClear: () => void;
 		errors?: { field: string; message: string }[];
 	} = $props();
 
 	let openAccordion = $state<'numerical' | 'canvas'>('numerical');
+
+	function drawAndSwitchToCanvas(nextGraph: BrauerGraph, options: RenderOptions) {
+		if (onDraw(nextGraph, options)) {
+			openAccordion = 'canvas';
+		}
+	}
 </script>
 
 <aside class="control-panel" aria-label="Controls">
@@ -27,7 +33,7 @@
 		open={openAccordion === 'numerical'}
 		disabled={openAccordion === 'canvas'}
 		onToggle={() => (openAccordion = 'numerical')}
-		onDraw={(nextGraph, options) => onDraw(nextGraph, options)}
+		onDraw={drawAndSwitchToCanvas}
 		{onClear}
 		{errors}
 	/>

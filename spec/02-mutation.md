@@ -1,5 +1,15 @@
 # Kaur Mutation and Graph Updates
 
+## Stage Dependencies
+
+Stage 2 mutation depends on the current rendering/editing state model:
+
+- Mutation must operate on the current in-memory `BrauerGraph`, current Cytoscape node positions, and any current ordinary-edge Bezier controls, not only on the original numerical-input layout.
+- Before a mutation changes the graph, push an undo snapshot as described in `06-canvas-editing.md` if the mutation is exposed as a user-visible canvas operation.
+- During graph update after animation, preserve user-positioned vertex nodes, manually adjusted arm angles for unaffected stars, and user-edited Bezier controls for unaffected ordinary connecting edges.
+- When mutation creates, retargets, or rebuilds an ordinary connecting edge without a saved/user-edited control to preserve, initialise that edge with Arm-Tangent Bezier Construction from `03-rendering.md`.
+- Mutation updates must not re-run the full initial layout unless the user explicitly requests a redraw from numerical input.
+
 ## Mutation Algorithm
 
 Mutation of orbifold ribbon graph $\Gamma$ is a procedue that changes the local structure around a selected subset $\mathcal{X}$ of edges. There are two types of mutation which are inverse of each other, we call them left and right, denoted by $\mu_{\mathcal{X}}^-(\Gamma)$ and $\mu_{\mathcal{X}}^+(\Gamma)$ respectively.
@@ -205,12 +215,18 @@ For each vertex $v \in V_\Delta$:
 
 1. **Remove** from Cytoscape all existing arm edges (`he-*`) and anchor nodes (`u-*`,
    `orb-x*`) belonging to $v$'s old star subgraph $S(v)$.
-2. **Recompute** anchor positions using the star geometry formula with the new cycle
-   ordering (CW or CCW as per current display setting), keeping $v$'s position fixed.
+2. **Recompute** anchor positions using the current star geometry state, keeping $v$'s
+   position fixed. If the user has adjusted emanating angles around this vertex, preserve
+   those angular positions as far as the new cyclic ordering allows; otherwise fall back
+   to the generated star geometry formula with the current CW/CCW setting.
 3. **Add** new arm edges and anchor/orbifold-end nodes to Cytoscape with the updated
    positions and IDs.
 4. **Update** connecting edges (`ce-*`, `ce-orb-*`) whose endpoints have moved:
-   rebind source/target to the newly created anchor nodes, but preserve the existing Bezier control point data (`edgeAnchors` entry for that edge). Only the endpoint binding changes; the curve shape is kept.
+   rebind source/target to the newly created anchor nodes. Preserve existing Bezier
+   control point data (`edgeAnchors` entry for that edge) when the edge represents the
+   same user-edited ordinary curve. If the ordinary edge is newly created or has no
+   saved/user-edited control data, initialise it with Arm-Tangent Bezier Construction
+   from `03-rendering.md`.
 
 > **Note**: The vertex node `v-{i}` itself does not move. Only the arms and anchors
 > are rebuilt. The compound parent `s-{i}` is updated to include the new anchor nodes.

@@ -14,7 +14,7 @@ All IDs are constructed by functions in `ids.ts`. No other file constructs IDs b
 | `he-p{h}`               | `he-p1`                  | Half-edge arm edge for +h (from v-{i} to u-p{h})                                       |
 | `he-m{h}`               | `he-m2`                  | Half-edge arm edge for −h (from v-{i} to u-m{h})                                       |
 | `ce-{h}`                | `ce-1`                   | Connecting edge (ordinary, connects `u-p{h}` to `u-m{h}`); keyed by positive half-edge |
-| `ce-orb-{h}`            | `ce-orb-3`               | Connecting segment for orbifold edge (`u-p{h}` to `orb-x{h}`)                           |
+| `ce-orb-{h}`            | `ce-orb-3`               | Connecting segment for orbifold edge (`u-p{h}` to `orb-x{h}`)                          |
 | `arr-{s1}{h1}-{s2}{h2}` | `arr-p1-m2`, `arr-m3-p1` | Cyclic ordering arrow from u-{s1}{h1} to u-{s2}{h2}; all four sign combinations valid  |
 
 All elements belonging to the same logical edge share a data attribute `edgeId` (e.g., `'p1'` for the ordinary edge contributed by half-edge +1). This enables click-anywhere-on-edge selection.
@@ -37,6 +37,7 @@ export const FAR_ENOUGH_PX = Math.round(CLUSTER_RADIUS * 1.5); // = 54px
 export const CIRCULAR_LAYOUT_RADIUS = 80; // px - radius of the cricle for which vertices laid on when pressing "Draw graph"
 export const GRID_LAYOUT_SPACE = 120; // px - space between vertices in grid layout
 export const LINE_LAYOUT_SPACE = 120; // px - space between vertices in line layout
+export const BEZIER_CONTROL_LENGTH = ARM_LENGTH; // px - default control length for Arm-Tangent Bezier Construction
 ```
 
 At degree 10, gap between adjacent anchor nodes ≈ 11.7 px — distinguishable but tight. Increasing `ARM_LENGTH` is the primary tuning lever.
@@ -76,7 +77,7 @@ Orbifold ends (`orb-x{h}`) use the same formula with the arm length $r_{arm}$ do
 
 ### Drag Re-sync
 
-Listen `dragfreeon` on vertex nodes. On drag-end, compute the translation delta $(\Delta x, \Delta y)$ from the vertex's old position and apply it rigidly to all anchor and orbifold-end nodes in $S(v_i)$. Do not re-run any layout.
+Listen to drag events on vertex nodes, anchor nodes, and orbifold-end nodes. Outside dedicated angle-adjustment mode, compute the translation delta $(\Delta x, \Delta y)$ from the dragged node's old position and apply it rigidly to all other nodes in the same $S(v_i)$. Do not re-run any layout.
 
 Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound structure **after** initial position assignment, not during it.
 
@@ -93,8 +94,10 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Anchor nodes** (`u-p{h}`, `u-m{h}`):
 
-- Normal state: invisible (`opacity: 0`). Selectable by Cytoscape for internal logic but not visible to the user.
+- Normal state: invisible. Selectable by Cytoscape for internal logic but not visible to the user.
 - Debug state: dashed hollow circle, radius `ANCHOR_RADIUS`.
+- Half-edge arms and connecting edges must visually meet at the anchor. Do not render an anchor-sized visible gap between `he-*` and `ce-*`; any debug anchor styling must be opt-in and disabled for normal use.
+- Dragging an anchor node must never change the half-edge arm length by itself. Outside dedicated angle-adjustment mode, dragging any vertex, anchor, or orbifold end in a star-shaped subgraph $S(v_i)$ translates the whole star rigidly.
 
 ```ts
 // DEBUG: change opacity to 0 before publishing
@@ -109,7 +112,19 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Half-edge arms** (`he-p{h}`, `he-m{h}`): straight Cytoscape edges from the vertex node to the anchor node. `curve-style: none` (straight). All share `edgeId` data attribute for the logical edge they belong to. In the cytoscape data, this have source `v-{i}` and target `u-p{h}` (or `u-m{h}`).
 
-**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). Managed by `cytoscape-edge-editing` for draggable anchor handles. `curve-style: unbundled-bezier`. In cytoscape data, we use the convetion that source is `u-p{h}` and target is `u-m{h}`. When auto-generating cytoscape graph from numerical data, we take the Bezier curve so that is starts in the same direction of the half-edge arm it connects to in each of its ends.
+**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). Managed by `cytoscape-edge-editing` for draggable anchor handles. `curve-style: unbundled-bezier`. In cytoscape data, we use the convetion that source is `u-p{h}` and target is `u-m{h}`.
+
+#### Arm-Tangent Bezier Construction
+
+Whenever an ordinary connecting edge `ce-{h}` is created automatically, use the **Arm-Tangent Bezier Construction**:
+
+1. Let the source anchor be `u-p{h}` and the target anchor be `u-m{h}`.
+2. At `u-p{h}`, choose the first Bezier control direction to agree with the outgoing direction of the half-edge arm `he-p{h}` from its vertex node to `u-p{h}`.
+3. At `u-m{h}`, choose the second Bezier control direction to agree with the outgoing direction of the half-edge arm `he-m{h}` from its vertex node to `u-m{h}`.
+4. Use `BEZIER_CONTROL_LENGTH` as the initial length of both Bezier controls. For now this constant is equal to `ARM_LENGTH`; it can be tuned after visual testing.
+5. Store the resulting Cytoscape control-point data on the connecting edge so later editing and save/load can preserve or restore it.
+
+This procedure applies when drawing a graph from numerical input and whenever Canvas Edit creates or replaces an ordinary connecting edge, including the `"Reconnect arc"` flow.
 
 **Orbifold connecting edge** (`ce-orb-{h}`): straight segment from `u-p{h}` to `orb-x{h}`. Length being twice of `ARM_LENGTH`. No Bezier handles.
 
@@ -117,7 +132,7 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Edge labels** (display toggle "Edge labels"): when on, show `[i]` at the midpoint of each connecting edge (`ce-{h}` and `ce-orb-{h}`), where `i` is the positive half-edge index. Use Cytoscape's `label` property on the connecting edge element. Monospace font.
 
-### Cyclic Ordering Arrows (display toggle "Cyclic order arrows")
+### Cyclic Ordering Arrows (display toggle "Cyclic ordering arrows")
 
 For each consecutive pair $(a_j^i, a_{j+1}^i)$ in a cycle (including wrap-around $(a_{last}^i, a_1^i)$):
 

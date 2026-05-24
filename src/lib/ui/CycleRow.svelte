@@ -5,6 +5,7 @@
 		index,
 		cycle,
 		multiplicity,
+		focusCycleInput = false,
 		disabled = false,
 		onCycleInput,
 		onMultiplicityInput,
@@ -13,23 +14,35 @@
 		index: number;
 		cycle: string;
 		multiplicity: number;
+		focusCycleInput?: boolean;
 		disabled?: boolean;
 		onCycleInput: (value: string) => void;
 		onMultiplicityInput: (value: number) => void;
 		onRemove: () => void;
 	} = $props();
+
+	let cycleInput: HTMLInputElement;
+
+	$effect(() => {
+		if (focusCycleInput && cycleInput) {
+			cycleInput.focus();
+		}
+	});
 </script>
 
 <div class:disabled class="cycle-row">
-	<span class="vertex-badge">v<sub>{index + 1}</sub></span>
-	<input
-		class="cycle-input"
-		type="text"
-		value={cycle}
-		placeholder="1, -2, 3"
-		disabled={disabled}
-		oninput={(event) => onCycleInput(event.currentTarget.value)}
-	/>
+	<label class="cycle-label">
+		<span>v{index + 1}</span>
+		<input
+			class="cycle-input"
+			type="text"
+			bind:this={cycleInput}
+			value={cycle}
+			placeholder="1, -2, 3"
+			disabled={disabled}
+			oninput={(event) => onCycleInput(event.currentTarget.value)}
+		/>
+	</label>
 	<label class="multiplicity-label">
 		<span>m</span>
 		<input
@@ -48,7 +61,7 @@
 <style>
 	.cycle-row {
 		display: grid;
-		grid-template-columns: 34px minmax(0, 1fr) 60px 30px;
+		grid-template-columns: minmax(0, 1fr) 60px 30px;
 		align-items: center;
 		gap: 8px;
 	}
@@ -58,15 +71,14 @@
 		pointer-events: none;
 	}
 
-	.vertex-badge {
-		display: inline-grid;
-		place-items: center;
-		min-height: 28px;
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		background: var(--bg-primary);
-		font-size: 13px;
-		font-weight: 700;
+	.cycle-label {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+		color: var(--text-secondary);
+		font-size: 12px;
 	}
 
 	.cycle-input {

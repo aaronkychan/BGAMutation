@@ -41,6 +41,19 @@
 		cy.style(createStylesheet());
 	}
 
+	function translateStar(target: cytoscape.NodeSingular, dx: number, dy: number) {
+		const parent = target.data('parent');
+		if (!parent) return;
+
+		cy
+			?.nodes(`[parent = "${parent}"]`)
+			.not(target)
+			.positions((node) => ({
+				x: node.position('x') + dx,
+				y: node.position('y') + dy
+			}));
+	}
+
 	onMount(() => {
 		let cancelled = false;
 
@@ -48,61 +61,57 @@
 			await registerCytoscapeExtensions();
 			if (cancelled) return;
 
-		cy = cytoscape({
-			container,
-			elements: [],
-			style: createStylesheet(),
-			layout: { name: 'preset' },
-			minZoom: 0.2,
-			maxZoom: 3,
-			wheelSensitivity: 0.2
-		});
+			cy = cytoscape({
+				container,
+				elements: [],
+				style: createStylesheet(),
+				layout: { name: 'preset' },
+				minZoom: 0.2,
+				maxZoom: 3,
+				wheelSensitivity: 0.2
+			});
 
-		cy.on('mouseover tap', '.v-node', (event) => {
-			const node = event.target;
-			const multiplicity = node.data('multiplicity');
-			const rendered = node.renderedPosition();
-			tooltip = {
-				x: rendered.x + 12,
-				y: rendered.y + 12,
-				text: `Multiplicity: ${multiplicity}`
-			};
-		});
+			cy.on('mouseover tap', '.v-node', (event) => {
+				const node = event.target;
+				const multiplicity = node.data('multiplicity');
+				const rendered = node.renderedPosition();
+				tooltip = {
+					x: rendered.x + 12,
+					y: rendered.y + 12,
+					text: `Multiplicity: ${multiplicity}`
+				};
+			});
 
-		cy.on('mouseout', '.v-node', () => {
-			tooltip = null;
-		});
+			cy.on('mouseout', '.v-node', () => {
+				tooltip = null;
+			});
 
-		cy.on('drag', '.v-node', () => {
-			tooltip = null;
-		});
+			cy.on('grab', '.v-node, .u-node, .orbifold-node', (event) => {
+				event.target.scratch('previousPosition', { ...event.target.position() });
+			});
 
-		cy.on('grab', '.v-node', (event) => {
-			event.target.scratch('previousPosition', { ...event.target.position() });
-		});
+			cy.on('drag', '.v-node, .u-node, .orbifold-node', (event) => {
+				tooltip = null;
+				const target = event.target;
+				const previous = target.scratch('previousPosition') as { x: number; y: number } | undefined;
+				if (!previous) return;
 
-		cy.on('dragfreeon', '.v-node', (event) => {
-			const vertex = event.target;
-			const previous = vertex.scratch('previousPosition') as { x: number; y: number } | undefined;
-			if (!previous) return;
+				const current = target.position();
+				const dx = current.x - previous.x;
+				const dy = current.y - previous.y;
+				if (dx === 0 && dy === 0) return;
 
-			const current = vertex.position();
-			const dx = current.x - previous.x;
-			const dy = current.y - previous.y;
-			const parent = vertex.data('parent');
+				translateStar(target, dx, dy);
+				target.scratch('previousPosition', { ...current });
+			});
 
-			cy
-				?.nodes(`[parent = "${parent}"]`)
-				.not(vertex)
-				.positions((node) => ({
-					x: node.position('x') + dx,
-					y: node.position('y') + dy
-				}));
-		});
+			cy.on('free', '.v-node, .u-node, .orbifold-node', (event) => {
+				event.target.removeScratch('previousPosition');
+			});
 
-		themeObserver = new MutationObserver(applyStylesheet);
-		themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-		renderGraph();
+			themeObserver = new MutationObserver(applyStylesheet);
+			themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+			renderGraph();
 		}
 
 		mountCytoscape();

@@ -1,12 +1,17 @@
 export const VERTEX_RADIUS = 10;
 export const ARM_LENGTH = 22;
 export const ANCHOR_RADIUS = 4;
+export const ORBIFOLD_END_RADIUS = 0.75 * VERTEX_RADIUS;
 export const STROKE_WIDTH = 2;
 export const CLUSTER_RADIUS = VERTEX_RADIUS + ARM_LENGTH + ANCHOR_RADIUS;
 export const FAR_ENOUGH_PX = Math.round(CLUSTER_RADIUS * 1.5);
 export const CIRCULAR_LAYOUT_RADIUS = 180;
 export const GRID_LAYOUT_SPACE = 120;
 export const LINE_LAYOUT_SPACE = 120;
+export const BEZIER_CONTROL_LENGTH = ARM_LENGTH;
+export const ORBIFOLD_EDGE_LENGTH = ARM_LENGTH * 4;
+export const ORDERING_ARROW_CURVE_DISTANCE = Math.round(ARM_LENGTH * 0.9);
+export const ORDERING_ARROW_LOOP_SWEEP = 300;
 
 export const ANIMATION_TOTAL_MS = 1000;
 export const ANIMATION_POST_MS = 500;

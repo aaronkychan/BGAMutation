@@ -16,6 +16,19 @@ This directory splits the original project specification into task-scoped refere
 
 If a focused spec conflicts with `00-decisions.md`, `00-decisions.md` is authoritative until the conflict is explicitly resolved.
 
+## Cross-Stage Implementation Dependencies
+
+Before starting Stage 2 mutation, animation, save/load, or later canvas-editing work, implementers must account for the rendering and edit-state invariants introduced in `03-rendering.md`, `04-ui.md`, and `06-canvas-editing.md`:
+
+- Existing Cytoscape positions, manually adjusted arm angles, and ordinary-edge Bezier controls are user state. Later stages must preserve them unless the operation explicitly changes them.
+- Anchor nodes are internal controls. They remain invisible in normal rendering, and half-edge arms must visually meet ordinary or orbifold connecting edges at the anchor with no visible anchor-sized gap.
+- Outside the dedicated Adjust emanating angle procedure, dragging a vertex, anchor, or orbifold endpoint translates the whole star-shaped subgraph rigidly.
+- Any operation that creates, reconnects, rebuilds, or retargets an ordinary connecting edge must apply Arm-Tangent Bezier Construction from `03-rendering.md`, unless it is explicitly restoring a saved/user-edited Bezier control.
+- Display toggles update the existing Cytoscape graph in place. They must not recompute initial layout or discard manually edited positions and edge controls.
+- Canvas Edit mutations must snapshot undo state before making user-visible changes.
+
+These dependencies are not optional polish; they are part of the state model that later stages build on.
+
 ## Overview
 
 A web application for visualising Brauer graph algebras and their skew generalisations, and animating the Kaur mutation. The primary representation is a combinatorial ribbon (orbifold) graph with a multiplicity function, rendered as an interactive graph editor. Implemented in Svelte 5 / SvelteKit, hosted on GitHub Pages.

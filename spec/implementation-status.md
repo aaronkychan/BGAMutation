@@ -12,17 +12,16 @@ Implemented:
 - Light/dark theme toggle persisted to `localStorage`.
 - `ControlPanel` structure with mutually exclusive numerical input and canvas editing accordions.
 - `NumericalAccordion` controls:
-  - Graph type segmented control.
-  - Edge count input.
-  - Skew Brauer orbifold edge input.
-  - Derived `H` display using `computeH`.
-  - Vertex cycle rows with multiplicity inputs and remove buttons.
-  - Add vertex action.
-  - Display toggles.
-  - Ordering direction segmented control.
-  - Initial layout radio group.
-  - Grouped predefined examples dropdown.
-  - Draw graph and Clear actions.
+    - Edge count input.
+    - Always-visible orbifold edge input; empty input indicates ordinary Brauer graph.
+    - Compact `#ordinary edges` display.
+    - Vertex cycle rows with multiplicity inputs and remove buttons.
+    - Add vertex action, including focus transfer to the new row's cycle input.
+    - Display toggles.
+    - Ordering direction segmented control.
+    - Initial layout radio group.
+    - Grouped predefined examples dropdown.
+    - Draw graph and Clear actions.
 - `CanvasAccordion` button list, currently disabled pending canvas editing implementation.
 - `InfoBox` showing current graph type, vertex count, edge count, and orbifold count/genus placeholder.
 - `MutationControls` placeholder buttons, disabled pending mutation workflow implementation.
@@ -37,27 +36,31 @@ Verified:
 - `bun run check` passes with 0 errors and 0 warnings.
 - `bun run build` passes and writes static output to `docs/`.
 - Static browser smoke test passed:
-  - Page renders with header, numerical controls, and display panel.
-  - Loading `Star (5 edges)` and clicking `Draw graph` updates the display panel and info box.
-  - No browser console errors were observed in that smoke test.
+    - Page renders with header, numerical controls, and display panel.
+    - Loading `Star (5 edges)` and clicking `Draw graph` updates the display panel and info box.
+    - No browser console errors were observed in that smoke test.
 
 Known problems / gaps:
 
-- Cytoscape rendering is not wired yet; `DisplayPanel` is still a placeholder.
-- Graph validation is not wired into `Draw graph` yet.
-- `InfoBox` face count, genus calculation, connectedness, and warning behavior are placeholders.
-- Canvas editing buttons are present but disabled.
-- Mutation buttons are present but disabled.
-- Save/load buttons are present but disabled.
-- Display toggles and ordering direction are UI-only; they are not connected to rendering state.
-- Initial vertex layout selection is accepted by the form but not used yet.
-- The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
-- Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
+1. Cytoscape rendering is not wired yet; `DisplayPanel` is still a placeholder.
+2. Graph validation is not wired into `Draw graph` yet.
+3. `InfoBox` face count, genus calculation, connectedness, and warning behavior are placeholders.
+4. Canvas editing buttons are present but disabled.
+5. Mutation buttons are present but disabled.
+6. Save/load buttons are present but disabled.
+7. Display toggles and ordering direction are UI-only; they are not connected to rendering state.
+8. Initial vertex layout selection is accepted by the form but not used yet.
+9. The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
+10. Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
 
 Resolved problems:
 
 - The initial Stage 0 shell used implicit root sizing, which could make the header feel cramped and allow the workspace to behave as a content-sized layout in some contexts. The root, body, app shell, workspace, control region, and display panel now use explicit viewport sizing and overflow constraints.
 - Browser verification after the sizing fix at `1280 x 720` measured Panel 1 at `320px` wide and Panel 2 filling the remaining `960px`, side-by-side as required for desktop.
+
+Problems that do not require immediate resolution:
+
+- Problems 1-8 will be fixed in later stages.
 
 ## Stage 1: Graph Presentation
 
@@ -66,52 +69,90 @@ Status: started
 Implemented:
 
 - `src/lib/math/ribbon.ts`
-  - `computeFaces`
-  - `isConnected`
-  - `validateBrauerGraph`
-  - `computeTopologyMetrics`
+    - `computeFaces`
+    - `isConnected`
+    - `validateBrauerGraph`
+    - `computeTopologyMetrics`
 - `src/lib/graph/ids.ts`
-  - Ordering arrow ID helper.
+    - Ordering arrow ID helper.
 - `src/lib/graph/elements.ts`
-  - Cytoscape element generation for vertex nodes, anchor nodes, half-edge arms, ordinary connecting edges, orbifold ends, orbifold connecting edges, and cyclic ordering arrows.
-  - Initial anchor and orbifold-end positions derived analytically from vertex positions.
-  - Logical edge `edgeId` data applied to arms, anchors, and connecting edges.
+    - Cytoscape element generation for vertex nodes, anchor nodes, half-edge arms, ordinary connecting edges, orbifold ends, orbifold connecting edges, and cyclic ordering arrows.
+    - Initial anchor and orbifold-end positions derived analytically from vertex positions.
+    - Logical edge `edgeId` data applied to arms, anchors, and connecting edges.
 - `src/lib/graph/style.ts`
-  - Cytoscape stylesheet using CSS custom properties for light/dark themes.
-  - Hollow/filled vertex rendering based on multiplicity.
-  - Half-edge labels, multiplicity labels, edge labels, orbifold cross marker, and cyclic ordering arrow styling.
+    - Cytoscape stylesheet using CSS custom properties for light/dark themes.
+    - Hollow/filled vertex rendering based on multiplicity.
+    - Half-edge labels, multiplicity labels, edge labels, orbifold cross marker, and cyclic ordering arrow styling.
 - `DisplayPanel.svelte`
-  - Cytoscape mount with preset layout.
-  - Draws validated graph data from numerical input.
-  - Re-applies stylesheet on theme changes.
-  - Vertex multiplicity tooltip on hover/tap.
-  - Vertex drag-end rigidly translates associated anchors and orbifold ends in the same star.
+    - Cytoscape mount with preset layout.
+    - Draws validated graph data from numerical input.
+    - Re-applies stylesheet on theme changes.
+    - Vertex multiplicity tooltip on hover/tap.
+    - Vertex drag-end rigidly translates associated anchors and orbifold ends in the same star.
 - Numerical input draw flow
-  - Validates before drawing.
-  - Emits inline validation messages under relevant inputs.
-  - Passes display toggles, ordering direction, and initial layout choice to rendering.
+    - Validates before drawing.
+    - Emits inline validation messages under relevant inputs.
+    - Passes display toggles, ordering direction, and initial layout choice to rendering.
 - `InfoBox.svelte`
-  - Shows topology metrics: type, vertices, edges, faces, connectedness, genus or orbifold edge count.
+    - Shows topology metrics: type, vertices, edges, faces, connectedness, genus or orbifold edge count.
 
 Verified:
 
 - `bun run check` passes with 0 errors and 0 warnings.
 - `bun run build` passes and writes static output to `docs/`.
 - Static browser smoke test passed:
-  - Loading `Star (5 edges)` and clicking `Draw graph` creates Cytoscape canvases.
-  - Placeholder disappears after drawing.
-  - Graph topology info updates.
-  - No browser console errors were observed.
-  - Visual screenshot confirmed a non-empty rendered graph canvas.
+    - Loading `Star (5 edges)` and clicking `Draw graph` creates Cytoscape canvases.
+    - Placeholder disappears after drawing.
+    - Graph topology info updates.
+    - No browser console errors were observed.
+    - Visual screenshot confirmed a non-empty rendered graph canvas.
 
 Known problems / gaps:
 
-- Bezier control points for ordinary connecting edges are a simple initial default, not yet tuned to match the exact outgoing half-edge directions at both ends.
-- Cytoscape edge-editing anchor handle initialization is not wired yet.
-- Save/load restoration of Cytoscape positions and edge anchors is not wired yet.
-- Display toggles update on redraw; they are not live-updated against an already-rendered graph without pressing `Draw graph` again.
-- Cyclic ordering singleton arrows use Cytoscape loop styling but may need visual tuning.
+1. Bezier control points for ordinary connecting edges are a simple initial default, not yet tuned to match the exact outgoing half-edge directions at both ends.
+2. Cytoscape edge-editing anchor handle initialization is not wired yet.
+3. Save/load restoration of Cytoscape positions and edge anchors is not wired yet.
+4. Display toggles update on redraw; they are not live-updated against an already-rendered graph without pressing `Draw graph` again.
+5. Cyclic ordering singleton arrows use Cytoscape loop styling but may need visual tuning.
+6. Canvas Edit mode procedures are specified but not fully implemented yet: Undo, Adjust emanating angle, Rotate vertex, and in-place reconnect arc Bezier refresh.
+7. Normal rendering must continue to ensure half-edge arms and connecting edges visually meet at invisible anchors without an anchor-sized gap.
 
 Resolved problems:
 
 - `cytoscape-context-menus` references browser globals during module evaluation, which broke static prerender with `ReferenceError: HTMLButtonElement is not defined`. Cytoscape extension imports were moved behind the browser-only mount path in `registerCytoscapeExtensions`.
+- Top-priority items from `spec/things-to-improve.md`:
+  - Successful `Draw graph` now immediately switches Panel 1 from numerical input to Canvas Edit mode.
+  - Anchor nodes are visually hidden by default; half-edge labels can still be displayed without drawing anchor circles.
+  - Dragging any vertex, anchor, or orbifold endpoint now translates the associated star-shaped subgraph as a rigid unit instead of changing arm lengths.
+  - Generated ordinary connecting edges now store per-edge Bezier control values derived from endpoint arm directions, using `BEZIER_CONTROL_LENGTH`.
+  - `CycleRow` cyclic-order label/input layout was repaired so the vertex label and cycle input stay on one line.
+  - Numerical field labels no longer force uppercase, preserving mathematical notation such as `σ₀`.
+
+Problems that do not require immediate resolution:
+
+- Problem 2 will be implemented in a later stage.
+- Problem 3 will be implemented in the next stage.
+
+## Spec-Integrated Pending Work
+
+These items from `spec/things-to-improve.md` have been folded into the canonical specs so they should be considered when implementing the next stages:
+
+- `spec/03-rendering.md`
+    - Anchor nodes remain invisible in normal rendering.
+    - Half-edge arms and connecting edges must visually meet at anchors with no visible anchor-sized gap.
+    - Dragging a vertex, anchor, or orbifold endpoint outside dedicated angle-adjustment mode translates the entire star-shaped subgraph rigidly.
+    - Ordinary connecting edges created by rendering or reconnect flows use Arm-Tangent Bezier Construction.
+- `spec/04-ui.md`
+    - Numerical input uses always-visible `orbifoldEdges` and compact `#ordinary edges` display.
+    - Add vertex moves focus to the newly added cycle input.
+    - Display toggles must update an already-rendered Cytoscape graph in place.
+    - Canvas Edit includes Undo, Adjust emanating angle, and Rotate vertex controls.
+- `spec/06-canvas-editing.md`
+    - Undo snapshots graph data, Cytoscape positions, Bezier control data, and relevant display state before mutating canvas edits.
+    - Adjust emanating angle rotates one arm within its current cyclic sector and reapplies Arm-Tangent Bezier Construction to incident ordinary edges.
+    - Rotate vertex cyclically permutes arm positions around a selected vertex and refreshes incident ordinary-edge Bezier controls.
+    - Reconnect arc must initialise every new ordinary connecting edge with Arm-Tangent Bezier Construction.
+
+## Readiness for Next Stage
+
+Stage 1 is usable enough to move forward, but the next implementation stage should begin by addressing the pending rendering/editing invariants above. In particular, live display-toggle updates and the first Canvas Edit behaviours will touch shared render state, Cytoscape element data, and undo/restore shape, so they should be implemented before deeper mutation workflows.

@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { ChevronDown, Plus } from 'lucide-svelte';
+	import { tick } from 'svelte';
 	import { examples } from '$lib/math/examples';
-	import { computeH } from '$lib/math/ribbon';
 	import type { BrauerGraph } from '$lib/math/types';
 	import type { RenderOptions } from '$lib/graph/types';
 	import CycleRow from './CycleRow.svelte';
 
-	type GraphType = 'brauer' | 'skew';
 	type LayoutMode = 'circle' | 'grid' | 'line';
 	type Direction = 'CW' | 'CCW';
 
@@ -31,7 +30,6 @@
 		errors?: { field: string; message: string }[];
 	} = $props();
 
-	let graphType = $state<GraphType>('brauer');
 	let edgeCount = $state(0);
 	let orbifoldEdgesInput = $state('');
 	let rows = $state<CycleFormRow[]>([{ cycle: '', multiplicity: 1 }]);
@@ -42,15 +40,15 @@
 	let direction = $state<Direction>('CW');
 	let layout = $state<LayoutMode>('circle');
 	let selectedExample = $state('');
+	let focusedCycleRowIndex = $state<number | null>(null);
 
 	let orbifoldEdges = $derived(
 		orbifoldEdgesInput
 			.split(',')
 			.map((part) => Number.parseInt(part.trim(), 10))
-			.filter((value) => Number.isInteger(value) && value > 0 && value <= edgeCount)
+			.filter((value) => Number.isInteger(value) && value > 0)
 	);
-	let halfEdges = $derived(computeH(Math.max(0, edgeCount), graphType === 'skew' ? orbifoldEdges : []));
-	let hDisplay = $derived(`H = {${halfEdges.join(', ')}}`);
+	let ordinaryEdgeCount = $derived(Math.max(0, edgeCount - orbifoldEdges.length));
 
 	function errorFor(field: string): string | undefined {
 		return errors.find((error) => error.field === field)?.message;
@@ -59,14 +57,7 @@
 	function resetRows() {
 		rows = [{ cycle: '', multiplicity: 1 }];
 		selectedExample = '';
-	}
-
-	function setGraphType(nextType: GraphType) {
-		if (graphType === nextType) return;
-		graphType = nextType;
-		edgeCount = 0;
-		orbifoldEdgesInput = '';
-		resetRows();
+		focusedCycleRowIndex = null;
 	}
 
 	function setEdgeCount(value: number) {
@@ -86,7 +77,7 @@
 		const multiplicity = rows.map((row) => row.multiplicity);
 		return {
 			n: edgeCount,
-			...(graphType === 'skew' && orbifoldEdges.length ? { orbifoldEdges } : {}),
+			...(orbifoldEdges.length ? { orbifoldEdges } : {}),
 			sigma0,
 			multiplicity
 		};
@@ -99,15 +90,14 @@
 
 		edgeCount = example.graph.n;
 		orbifoldEdgesInput = example.graph.orbifoldEdges?.join(', ') ?? '';
-		graphType = example.graph.orbifoldEdges?.length ? 'skew' : 'brauer';
 		rows = example.graph.sigma0.map((cycle, index) => ({
 			cycle: cycle.join(', '),
 			multiplicity: example.graph.multiplicity[index] ?? 1
 		}));
+		focusedCycleRowIndex = null;
 	}
 
 	function clearForm() {
-		graphType = 'brauer';
 		edgeCount = 0;
 		orbifoldEdgesInput = '';
 		rows = [{ cycle: '', multiplicity: 1 }];
@@ -118,7 +108,16 @@
 		direction = 'CW';
 		layout = 'circle';
 		selectedExample = '';
+		focusedCycleRowIndex = null;
 		onClear();
+	}
+
+	async function addVertexRow() {
+		const nextIndex = rows.length;
+		rows = [...rows, { cycle: '', multiplicity: 1 }];
+		focusedCycleRowIndex = nextIndex;
+		await tick();
+		focusedCycleRowIndex = null;
 	}
 
 	function drawCurrentGraph() {
@@ -142,70 +141,52 @@
 	{#if open}
 		<div class="accordion-body">
 			<div class="field-group">
-				<span class="label">Graph type</span>
-				<div class="segmented" role="group" aria-label="Graph type">
-					<button
-						type="button"
-						class:active={graphType === 'brauer'}
-						disabled={disabled}
-						onclick={() => setGraphType('brauer')}
-					>
-						Brauer
-					</button>
-					<button
-						type="button"
-						class:active={graphType === 'skew'}
-						disabled={disabled}
-						onclick={() => setGraphType('skew')}
-					>
-						Skew Brauer
-					</button>
+				<div class="edge-count-row">
+					<label class="edge-count-field">
+						<span class="label">#ordinary+orbifold edges: </span>
+						<input
+							type="number"
+							min="0"
+							value={edgeCount}
+							disabled={disabled}
+							onchange={(event) => setEdgeCount(event.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<div class="compact-h-field">
+						<span class="label">#ordinary edges</span>
+						<div class="compact-h-display" aria-label="Ordinary edge count">{ordinaryEdgeCount}</div>
+					</div>
 				</div>
-			</div>
-
-			<div class="field-group">
-				<label>
-					<span class="label">Edge count</span>
-					<input
-						type="number"
-						min="0"
-						value={edgeCount}
-						disabled={disabled}
-						onchange={(event) => setEdgeCount(event.currentTarget.valueAsNumber)}
-					/>
-				</label>
 				{#if errorFor('edgeCount')}
 					<p class="field-error">{errorFor('edgeCount')}</p>
 				{/if}
-				{#if graphType === 'skew'}
-					<label>
-						<span class="label">Orbifold edges</span>
-						<input
-							type="text"
-							value={orbifoldEdgesInput}
-							placeholder="3, 4"
-							disabled={disabled}
-							oninput={(event) => {
-								orbifoldEdgesInput = event.currentTarget.value;
-								resetRows();
-							}}
-						/>
-					</label>
-					{#if errorFor('orbifoldEdges')}
-						<p class="field-error">{errorFor('orbifoldEdges')}</p>
-					{/if}
+				<label>
+					<span class="label">Orbifold edges</span>
+					<input
+						type="text"
+						value={orbifoldEdgesInput}
+						placeholder="empty, or 3, 4"
+						disabled={disabled}
+						oninput={(event) => {
+							orbifoldEdgesInput = event.currentTarget.value;
+							resetRows();
+						}}
+					/>
+				</label>
+				{#if errorFor('orbifoldEdges')}
+					<p class="field-error">{errorFor('orbifoldEdges')}</p>
 				{/if}
-				<div class="readonly-line">{hDisplay}</div>
 			</div>
 
 			<div class="field-group">
-				<span class="label">Cyclic ordering σ₀</span>
+				<span class="label">Cyclic ordering σ₀ + multiplicity m</span>
 				<div class="cycle-list">
 					{#each rows as row, index}
 						<CycleRow
 							{index}
 							cycle={row.cycle}
 							multiplicity={row.multiplicity}
+							focusCycleInput={focusedCycleRowIndex === index}
 							{disabled}
 							onCycleInput={(value) => {
 								rows[index] = { ...rows[index], cycle: value };
@@ -232,8 +213,12 @@
 					class="link-button"
 					type="button"
 					disabled={disabled}
-					onclick={() => {
-						rows = [...rows, { cycle: '', multiplicity: 1 }];
+					onclick={addVertexRow}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' || event.key === ' ') {
+							event.preventDefault();
+							addVertexRow();
+						}
 					}}
 				>
 					<Plus size={14} />
@@ -243,7 +228,7 @@
 
 			<div class="field-group">
 				<span class="label">Display toggles</span>
-				<label class="switch"><input type="checkbox" bind:checked={showOrderArrows} disabled={disabled} /> Cyclic order arrows</label>
+				<label class="switch"><input type="checkbox" bind:checked={showOrderArrows} disabled={disabled} /> Show cyclic ordering as arrows</label>
 				<label class="switch"><input type="checkbox" bind:checked={showHalfEdgeLabels} disabled={disabled} /> Half-edge labels</label>
 				<label class="switch"><input type="checkbox" bind:checked={showMultiplicityLabels} disabled={disabled} /> Multiplicity labels</label>
 				<label class="switch"><input type="checkbox" bind:checked={showEdgeLabels} disabled={disabled} /> Edge labels</label>
@@ -337,7 +322,6 @@
 		color: var(--text-secondary);
 		font-size: 12px;
 		font-weight: 700;
-		text-transform: uppercase;
 	}
 
 	input,
@@ -381,15 +365,30 @@
 		color: var(--accent-contrast);
 	}
 
-	.readonly-line {
-		overflow-wrap: anywhere;
+	.edge-count-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+		gap: 8px;
+	}
+
+	.edge-count-field,
+	.compact-h-field {
+		display: grid;
+		gap: 8px;
+	}
+
+	.compact-h-display {
+		min-width: 70px;
 		border: 1px solid var(--border);
 		border-radius: 6px;
 		background: var(--bg-primary);
 		color: var(--text-secondary);
-		padding: 7px 8px;
-		font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+		padding: 8px;
+		font-family: var(--font-mono);
 		font-size: 12px;
+		line-height: 1;
+		text-align: center;
 	}
 
 	.field-error {
