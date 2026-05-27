@@ -70,8 +70,8 @@ export async function animateMutation(
 			const cycle = graph.sigma0[fan.cycleIndex];
 			const e =
 				direction === 'left'
-					? cycle[(fan.endIndex + 1) % cycle.length]
-					: cycle[(fan.startIndex - 1 + cycle.length) % cycle.length];
+					? cycle[(fan.startIndex - 1 + cycle.length) % cycle.length]
+					: cycle[(fan.endIndex + 1) % cycle.length];
 			if (selected.has(e)) return;
 
 			await animateAndTrack(edgeById(cy, armId(e)), 'forward', ANIMATION_PHASE3_MS / 3);
@@ -108,8 +108,8 @@ function collectInvolvedEdges(
 		const cycle = graph.sigma0[fan.cycleIndex];
 		const neighbor =
 			direction === 'left'
-				? cycle[(fan.endIndex + 1) % cycle.length]
-				: cycle[(fan.startIndex - 1 + cycle.length) % cycle.length];
+				? cycle[(fan.startIndex - 1 + cycle.length) % cycle.length]
+				: cycle[(fan.endIndex + 1) % cycle.length];
 		if (!selected.has(neighbor)) involved.add(Math.abs(neighbor));
 	}
 

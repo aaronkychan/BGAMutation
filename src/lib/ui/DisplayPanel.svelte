@@ -21,6 +21,7 @@
 	let tooltip = $state<{ x: number; y: number; text: string } | null>(null);
 	let infoMessage = $state('');
 	let mutating = false;
+	let mutationUpdatedGraph: BrauerGraph | null = null;
 	let renderedGraph: BrauerGraph | null = null;
 	let renderedOptions: RenderOptions | null = null;
 
@@ -99,8 +100,55 @@
 		cy.elements().remove();
 		cy.add(buildElements(nextGraph, positions, options));
 		cy.layout({ name: 'preset', fit: false }).run();
+		restoreVertexPositions(positions);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
+	}
+
+	function updateGraphInPlace(nextGraph: BrauerGraph) {
+		if (!cy) return;
+
+		const positions = currentVertexPositions();
+		if (Object.keys(positions).length !== nextGraph.sigma0.length) {
+			renderGraphWithCurrentVertexPositions(nextGraph, positions);
+			return;
+		}
+
+		nextGraph.sigma0.forEach((_, vertexIndex) => {
+			const vertex = cy?.getElementById(vertexId(vertexIndex));
+			const multiplicity = nextGraph.multiplicity[vertexIndex] ?? 1;
+			vertex?.data({
+				vertexIndex,
+				multiplicity,
+				multiplicityLabel: options.showMultiplicityLabels ? String(multiplicity) : ''
+			});
+			vertex?.classes(`v-node ${multiplicity > 1 ? 'filled' : 'hollow'}`);
+		});
+
+		cy.elements().not('.v-node, .star-parent').remove();
+		cy.add(
+			buildElements(nextGraph, positions, options).filter(
+				(element) =>
+					!(
+						element.group === 'nodes' &&
+						String(element.classes)
+							.split(/\s+/)
+							.some((className) => className === 'v-node' || className === 'star-parent')
+					)
+			)
+		);
+		cy.layout({ name: 'preset', fit: false }).run();
+		restoreVertexPositions(positions);
+		renderedGraph = nextGraph;
+		renderedOptions = { ...options };
+	}
+
+	function restoreVertexPositions(positions: NodePositions) {
+		if (!cy) return;
+
+		for (const [id, position] of Object.entries(positions)) {
+			cy.getElementById(id).position(position);
+		}
 	}
 
 	function fallbackVertexPosition() {
@@ -307,7 +355,9 @@
 	$effect(() => {
 		graph;
 		options;
-		if (canApplyRenderOptionsInPlace()) {
+		if (graph && graph === mutationUpdatedGraph && renderedGraph === graph) {
+			mutationUpdatedGraph = null;
+		} else if (canApplyRenderOptionsInPlace()) {
 			applyRenderOptionsInPlace();
 		} else {
 			renderGraph();
@@ -349,10 +399,10 @@
 
 		const nextGraph = mutateGraph(graph, edgeOrbit(selectedEdge, graph.orbifoldEdges), direction);
 		await delay(ANIMATION_POST_MS);
-		const vertexPositions = currentVertexPositions();
+		updateGraphInPlace(nextGraph);
+		mutationUpdatedGraph = nextGraph;
 		graphState.graph = nextGraph;
 		graphState.mode = 'idle';
-		renderGraphWithCurrentVertexPositions(nextGraph, vertexPositions);
 		mutating = false;
 		infoMessage = '';
 	}

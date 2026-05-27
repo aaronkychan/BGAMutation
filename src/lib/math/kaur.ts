@@ -67,44 +67,38 @@ export function mutateRight(graph: BrauerGraph, selected: Set<number>): BrauerGr
 
 export function mutateGraph(graph: BrauerGraph, selected: Set<number>, direction: MutationDirection): BrauerGraph {
 	const fans = computeFans(graph.sigma0, selected);
-	const successor = buildSuccessorMap(graph.sigma0);
-	const nextSuccessor = new Map(successor);
+	const workingSigma0: WorkingCycle[] = graph.sigma0.map((cycle) => [...cycle]);
+	const movedHalfEdges = new Set<number>();
 
 	for (const fan of fans) {
 		if (fan.isFullCycle) continue;
 
 		const cycle = graph.sigma0[fan.cycleIndex];
-		const first = fan.elements[0];
-		const last = fan.elements[fan.elements.length - 1];
 
 		if (direction === 'left') {
+			// Think of the fan as a temporary primed copy. For left mutation, insert
+			// that copy immediately before sigma1(e), where e is the predecessor of
+			// the original fan. The old fan entries are removed after every insertion,
+			// so different fans cannot overwrite each other's splice data.
 			const e = cycle[(fan.startIndex - 1 + cycle.length) % cycle.length];
 			if (selected.has(e)) continue;
 
-			const afterFan = successor.get(last);
 			const sigma1e = sigma1(e, graph.orbifoldEdges);
-			const beforeSigma1e = predecessorOf(successor, sigma1e);
-			if (afterFan === undefined || beforeSigma1e === undefined) continue;
-
-			nextSuccessor.set(last, sigma1e);
-			nextSuccessor.set(e, afterFan);
-			nextSuccessor.set(beforeSigma1e, first);
+			for (const halfEdge of fan.elements) movedHalfEdges.add(halfEdge);
+			insertPrimedFan(workingSigma0, sigma1e, fan.elements, 'before');
 		} else {
-			const e = successor.get(last);
-			const f = cycle[(fan.startIndex - 1 + cycle.length) % cycle.length];
-			if (e === undefined || selected.has(e)) continue;
+			// Right mutation is the inverse local operation: insert the temporary copy
+			// immediately after sigma1(e), where e is the successor of the original fan.
+			const e = cycle[(fan.endIndex + 1) % cycle.length];
+			if (selected.has(e)) continue;
 
 			const sigma1e = sigma1(e, graph.orbifoldEdges);
-			const afterSigma1e = successor.get(sigma1e);
-			if (afterSigma1e === undefined) continue;
-
-			nextSuccessor.set(last, afterSigma1e);
-			nextSuccessor.set(sigma1e, first);
-			nextSuccessor.set(f, e);
+			for (const halfEdge of fan.elements) movedHalfEdges.add(halfEdge);
+			insertPrimedFan(workingSigma0, sigma1e, fan.elements, 'after');
 		}
 	}
 
-	const sigma0 = sortCyclesStable(successorMapToCycles(nextSuccessor, graph.sigma0));
+	const sigma0 = rotateToOriginalStarts(unprimeAndRemoveMoved(workingSigma0, movedHalfEdges), graph.sigma0);
 
 	return {
 		...graph,
@@ -128,56 +122,51 @@ function sigma1(halfEdge: number, orbifoldEdges: number[] = []): number {
 	return orbifoldEdges.includes(Math.abs(halfEdge)) ? Math.abs(halfEdge) : -halfEdge;
 }
 
-function buildSuccessorMap(sigma0: number[][]): Map<number, number> {
-	const successor = new Map<number, number>();
+interface PrimedHalfEdge {
+	halfEdge: number;
+}
+
+type WorkingHalfEdge = number | PrimedHalfEdge;
+type WorkingCycle = WorkingHalfEdge[];
+
+function insertPrimedFan(
+	sigma0: WorkingCycle[],
+	target: number,
+	fan: number[],
+	position: 'before' | 'after'
+): void {
+	const primedFan = fan.map((halfEdge) => ({ halfEdge }));
 
 	for (const cycle of sigma0) {
-		cycle.forEach((halfEdge, index) => {
-			successor.set(halfEdge, cycle[(index + 1) % cycle.length]);
-		});
-	}
+		const targetIndex = cycle.findIndex((halfEdge) => halfEdge === target);
+		if (targetIndex === -1) continue;
 
-	return successor;
+		const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+		cycle.splice(insertIndex, 0, ...primedFan);
+		return;
+	}
 }
 
-function predecessorOf(successor: Map<number, number>, target: number): number | undefined {
-	for (const [source, next] of successor.entries()) {
-		if (next === target) return source;
-	}
-
-	return undefined;
-}
-
-function successorMapToCycles(successor: Map<number, number>, originalCycles: number[][]): number[][] {
-	const visited = new Set<number>();
-	const cycles: number[][] = [];
-
-	for (const originalCycle of originalCycles) {
-		for (const start of originalCycle) {
-			if (visited.has(start)) continue;
-
-			const cycle: number[] = [];
-			let current = start;
-
-			while (!visited.has(current)) {
-				visited.add(current);
-				cycle.push(current);
-				const next = successor.get(current);
-				if (next === undefined) break;
-				current = next;
+function unprimeAndRemoveMoved(sigma0: WorkingCycle[], movedHalfEdges: Set<number>): number[][] {
+	return sigma0.map((cycle) => {
+		const nextCycle: number[] = [];
+		for (const halfEdge of cycle) {
+			if (typeof halfEdge === 'number') {
+				if (!movedHalfEdges.has(halfEdge)) nextCycle.push(halfEdge);
+			} else {
+				nextCycle.push(halfEdge.halfEdge);
 			}
-
-			if (cycle.length) cycles.push(cycle);
 		}
-	}
-
-	return cycles;
+		return nextCycle;
+	});
 }
 
-function sortCyclesStable(cycles: number[][]): number[][] {
-	return [...cycles].sort((left, right) => cycleSortKey(left) - cycleSortKey(right));
-}
+function rotateToOriginalStarts(sigma0: number[][], originalSigma0: number[][]): number[][] {
+	return sigma0.map((cycle, cycleIndex) => {
+		const originalStart = originalSigma0[cycleIndex]?.find((halfEdge) => cycle.includes(halfEdge));
+		if (originalStart === undefined) return cycle;
 
-function cycleSortKey(cycle: number[]): number {
-	return Math.min(...cycle.map((halfEdge) => Math.abs(halfEdge)));
+		const startIndex = cycle.indexOf(originalStart);
+		return [...cycle.slice(startIndex), ...cycle.slice(0, startIndex)];
+	});
 }
