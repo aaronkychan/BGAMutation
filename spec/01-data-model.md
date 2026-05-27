@@ -57,6 +57,7 @@ interface SavedFile {
     graph: BrauerGraph;
     cytoscapeJson: cytoscape.CytoscapeOptions; // output of cy.json() — nodes carry position:{x,y}
     edgeAnchors: Record<string, number[]>; // keyed by 'ce-{h}'; flat [x0,y0,x1,y1,...]
+    renderOptions?: RenderOptions; // display toggles, direction, and initial layout metadata
 }
 ```
 

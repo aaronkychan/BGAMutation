@@ -33,3 +33,12 @@ export function starParentId(index: number): string {
 export function orderingArrowId(from: number, to: number): string {
 	return `arr-${halfEdgeTag(from)}-${halfEdgeTag(to)}`;
 }
+
+export function orderingArrowPointId(vertexIndex: number, halfEdge: number, segmentIndex?: number | string): string {
+	const suffix = segmentIndex === undefined ? '' : `-${segmentIndex}`;
+	return `arrpt-${vertexIndex}-${halfEdgeTag(halfEdge)}${suffix}`;
+}
+
+export function orderingArrowSegmentId(from: number, to: number, segmentIndex: number): string {
+	return `${orderingArrowId(from, to)}-seg${segmentIndex}`;
+}

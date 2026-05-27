@@ -37,7 +37,7 @@ export const FAR_ENOUGH_PX = Math.round(CLUSTER_RADIUS * 1.5); // = 54px
 export const CIRCULAR_LAYOUT_RADIUS = 80; // px - radius of the cricle for which vertices laid on when pressing "Draw graph"
 export const GRID_LAYOUT_SPACE = 120; // px - space between vertices in grid layout
 export const LINE_LAYOUT_SPACE = 120; // px - space between vertices in line layout
-export const BEZIER_CONTROL_LENGTH = ARM_LENGTH; // px - default control length for Arm-Tangent Bezier Construction
+export const BEZIER_CONTROL_LENGTH = ARM_LENGTH * 1.8; // px - default control length for Arm-Tangent Bezier Construction
 ```
 
 At degree 10, gap between adjacent anchor nodes ≈ 11.7 px — distinguishable but tight. Increasing `ARM_LENGTH` is the primary tuning lever.
@@ -77,7 +77,7 @@ Orbifold ends (`orb-x{h}`) use the same formula with the arm length $r_{arm}$ do
 
 ### Drag Re-sync
 
-Listen to drag events on vertex nodes, anchor nodes, and orbifold-end nodes. Outside dedicated angle-adjustment mode, compute the translation delta $(\Delta x, \Delta y)$ from the dragged node's old position and apply it rigidly to all other nodes in the same $S(v_i)$. Do not re-run any layout.
+Listen to drag events on vertex nodes, anchor nodes, and orbifold-end nodes. Outside dedicated angle-adjustment mode, compute the translation delta $(\Delta x, \Delta y)$ from the dragged node's old position and apply it rigidly to all other nodes in the same $S(v_i)$. Do not re-run any layout. After each rigid star translation, recompute Arm-Tangent Bezier Construction control data for ordinary connecting edges incident to the moved star, using the current vertex and anchor positions.
 
 Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound structure **after** initial position assignment, not during it.
 
@@ -90,7 +90,7 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Multiplicity tooltip** (`Tooltip.svelte`): on `mouseover` / `tap` on any vertex node, show a floating `<div>` near the cursor with "Multiplicity: $m_i$". Visible regardless of the multiplicity-label toggle.
 
-**Multiplicity labels** (display toggle "Multiplicity labels"): when on, show $m_i$ as text adjacent to the vertex node, only if $m_i > 1$.
+**Multiplicity labels** (display toggle "Multiplicity labels"): when on, show $m_i$ centred inside every vertex node, including vertices with $m_i = 1$. The label colour must contrast with the vertex fill: filled vertices use the canvas/background colour for text, and hollow vertices use the vertex fill/border colour.
 
 **Anchor nodes** (`u-p{h}`, `u-m{h}`):
 
@@ -121,7 +121,7 @@ Whenever an ordinary connecting edge `ce-{h}` is created automatically, use the 
 1. Let the source anchor be `u-p{h}` and the target anchor be `u-m{h}`.
 2. At `u-p{h}`, choose the first Bezier control direction to agree with the outgoing direction of the half-edge arm `he-p{h}` from its vertex node to `u-p{h}`.
 3. At `u-m{h}`, choose the second Bezier control direction to agree with the outgoing direction of the half-edge arm `he-m{h}` from its vertex node to `u-m{h}`.
-4. Use `BEZIER_CONTROL_LENGTH` as the initial length of both Bezier controls. For now this constant is equal to `ARM_LENGTH`; it can be tuned after visual testing.
+4. Use `BEZIER_CONTROL_LENGTH` as the initial length of both Bezier controls. The default is longer than `ARM_LENGTH` so the connecting curve follows the half-edge arm direction before it begins turning.
 5. Store the resulting Cytoscape control-point data on the connecting edge so later editing and save/load can preserve or restore it.
 
 This procedure applies when drawing a graph from numerical input and whenever Canvas Edit creates or replaces an ordinary connecting edge, including the `"Reconnect arc"` flow.
@@ -136,9 +136,12 @@ This procedure applies when drawing a graph from numerical input and whenever Ca
 
 For each consecutive pair $(a_j^i, a_{j+1}^i)$ in a cycle (including wrap-around $(a_{last}^i, a_1^i)$):
 
-- Draw a directed Cytoscape edge `arr-{s1}{h1}-{s2}{h2}` from the anchor of $a_j^i$ to the anchor of $a_{j+1}^i$.
-- `curve-style: bezier`, colour `var(--arrow-color)`, dashed stroke.
-- Singleton cycle: `curve-style: loop` self-loop on the anchor node.
+- Create invisible, non-selectable arrow-only points on the circle of radius `ARM_LENGTH` around the associated vertex centre. These points are separate from anchor nodes, whose radius from the vertex centre is `VERTEX_RADIUS + ARM_LENGTH`.
+- Draw a directed Cytoscape edge `arr-{s1}{h1}-{s2}{h2}` between the arrow-only points for $a_j^i$ and $a_{j+1}^i$.
+- The arrow should approximate the corresponding circular arc. If the vertex valency is $n$, each cyclic ordering arrow around it has arc length $2\pi \cdot \texttt{ARM_LENGTH}/n$.
+- `curve-style: unbundled-bezier`, colour `var(--arrow-color)`, dashed stroke.
+- Valency 2: each cyclic ordering arrow is a semicircle, so draw it as two quarter-arc segments with an invisible midpoint on the `ARM_LENGTH` circle. Put the arrowhead only on the second segment. Do not draw a single quadratic Bezier for this case, because it looks parabolic rather than circular.
+- Singleton cycle: approximate the full circular ordering arrow by four quarter-arc segments on the same `ARM_LENGTH` radius circle, with the arrowhead only on the final segment.
 - All arrow edges: `selectable: false` — they must never be clickable for mutation or editing purposes.
 - Arrow edges carry **no** `edgeId` attribute.
 

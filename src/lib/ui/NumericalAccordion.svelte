@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, Plus } from 'lucide-svelte';
+	import { AlertTriangle, CheckCircle2, ChevronDown, Plus } from 'lucide-svelte';
 	import { tick } from 'svelte';
 	import { examples } from '$lib/math/examples';
 	import type { BrauerGraph } from '$lib/math/types';
@@ -16,17 +16,23 @@
 
 	let {
 		open,
+		currentGraph,
 		disabled = false,
 		onToggle,
 		onDraw,
+		onRenderOptionsChange,
 		onClear,
+		renderOptions,
 		errors = []
 	}: {
 		open: boolean;
+		currentGraph: BrauerGraph | null;
 		disabled?: boolean;
 		onToggle: () => void;
 		onDraw: (graph: BrauerGraph, options: RenderOptions) => void;
+		onRenderOptionsChange: (options: RenderOptions) => void;
 		onClear: () => void;
+		renderOptions: RenderOptions;
 		errors?: { field: string; message: string }[];
 	} = $props();
 
@@ -41,6 +47,8 @@
 	let layout = $state<LayoutMode>('circle');
 	let selectedExample = $state('');
 	let focusedCycleRowIndex = $state<number | null>(null);
+	let showUnusedHalfEdges = $state(false);
+	let syncedGraph: BrauerGraph | null = null;
 
 	let orbifoldEdges = $derived(
 		orbifoldEdgesInput
@@ -49,6 +57,10 @@
 			.filter((value) => Number.isInteger(value) && value > 0)
 	);
 	let ordinaryEdgeCount = $derived(Math.max(0, edgeCount - orbifoldEdges.length));
+	let expectedHalfEdges = $derived(computeExpectedHalfEdges());
+	let usedHalfEdges = $derived(computeUsedHalfEdges());
+	let missingHalfEdges = $derived(expectedHalfEdges.filter((halfEdge) => !usedHalfEdges.has(halfEdge)));
+	let invalidHalfEdges = $derived(computeInvalidHalfEdges());
 
 	function errorFor(field: string): string | undefined {
 		return errors.find((error) => error.field === field)?.message;
@@ -58,11 +70,12 @@
 		rows = [{ cycle: '', multiplicity: 1 }];
 		selectedExample = '';
 		focusedCycleRowIndex = null;
+		showUnusedHalfEdges = false;
 	}
 
 	function setEdgeCount(value: number) {
 		edgeCount = Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0);
-		resetRows();
+		selectedExample = '';
 	}
 
 	function parseCycle(value: string): number[] {
@@ -83,6 +96,35 @@
 		};
 	}
 
+	function computeExpectedHalfEdges(): number[] {
+		const orbifoldSet = new Set(orbifoldEdges);
+		const halfEdges: number[] = [];
+
+		for (let edge = 1; edge <= edgeCount; edge += 1) {
+			halfEdges.push(edge);
+			if (!orbifoldSet.has(edge)) halfEdges.push(-edge);
+		}
+
+		return halfEdges;
+	}
+
+	function computeUsedHalfEdges(): Set<number> {
+		return new Set(rows.flatMap((row) => parseCycle(row.cycle)));
+	}
+
+	function computeInvalidHalfEdges(): number[] {
+		const expected = new Set(expectedHalfEdges);
+		const invalid = rows
+			.flatMap((row) => parseCycle(row.cycle))
+			.filter((halfEdge) => !expected.has(halfEdge));
+
+		return [...new Set(invalid)].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b);
+	}
+
+	function formatHalfEdges(halfEdges: number[]): string {
+		return halfEdges.length ? halfEdges.join(', ') : 'none';
+	}
+
 	function loadExample(name: string) {
 		selectedExample = name;
 		const example = examples.find((candidate) => candidate.name === name);
@@ -95,6 +137,19 @@
 			multiplicity: example.graph.multiplicity[index] ?? 1
 		}));
 		focusedCycleRowIndex = null;
+	}
+
+	function syncFromGraph(graph: BrauerGraph) {
+		edgeCount = graph.n;
+		orbifoldEdgesInput = graph.orbifoldEdges?.join(', ') ?? '';
+		rows = graph.sigma0.map((cycle, index) => ({
+			cycle: cycle.join(', '),
+			multiplicity: graph.multiplicity[index] ?? 1
+		}));
+		selectedExample = '';
+		focusedCycleRowIndex = null;
+		showUnusedHalfEdges = false;
+		syncedGraph = graph;
 	}
 
 	function clearForm() {
@@ -130,11 +185,45 @@
 			layout
 		});
 	}
+
+	function currentRenderOptions(): RenderOptions {
+		return {
+			showOrderArrows,
+			showHalfEdgeLabels,
+			showMultiplicityLabels,
+			showEdgeLabels,
+			direction,
+			layout
+		};
+	}
+
+	function updateDisplayToggle(toggle: keyof Pick<RenderOptions, 'showOrderArrows' | 'showHalfEdgeLabels' | 'showMultiplicityLabels' | 'showEdgeLabels'>, checked: boolean) {
+		if (toggle === 'showOrderArrows') showOrderArrows = checked;
+		if (toggle === 'showHalfEdgeLabels') showHalfEdgeLabels = checked;
+		if (toggle === 'showMultiplicityLabels') showMultiplicityLabels = checked;
+		if (toggle === 'showEdgeLabels') showEdgeLabels = checked;
+		onRenderOptionsChange(currentRenderOptions());
+	}
+
+	$effect(() => {
+		showOrderArrows = renderOptions.showOrderArrows;
+		showHalfEdgeLabels = renderOptions.showHalfEdgeLabels;
+		showMultiplicityLabels = renderOptions.showMultiplicityLabels;
+		showEdgeLabels = renderOptions.showEdgeLabels;
+		direction = renderOptions.direction;
+		layout = renderOptions.layout;
+	});
+
+	$effect(() => {
+		if (disabled && currentGraph && currentGraph !== syncedGraph) {
+			syncFromGraph(currentGraph);
+		}
+	});
 </script>
 
 <section class:disabled class="accordion">
 	<button class="accordion-trigger" type="button" aria-expanded={open} onclick={onToggle}>
-		<span>Numerical input</span>
+		<span>Numerical edit</span>
 		<ChevronDown class={open ? 'open' : ''} size={18} />
 	</button>
 
@@ -169,7 +258,7 @@
 						disabled={disabled}
 						oninput={(event) => {
 							orbifoldEdgesInput = event.currentTarget.value;
-							resetRows();
+							selectedExample = '';
 						}}
 					/>
 				</label>
@@ -179,7 +268,44 @@
 			</div>
 
 			<div class="field-group">
-				<span class="label">Cyclic ordering σ₀ + multiplicity m</span>
+				<div class="cycle-heading">
+					<span class="label">Cyclic ordering σ₀ + multiplicity m</span>
+					<div class="unused-info">
+						<button
+							class="info-button"
+							class:complete={!missingHalfEdges.length}
+							class:incomplete={missingHalfEdges.length > 0}
+							type="button"
+							aria-expanded={showUnusedHalfEdges}
+							aria-label={missingHalfEdges.length
+								? 'Show unused half-edges'
+								: 'All half-edges are attached to vertices'}
+							disabled={disabled}
+							onclick={() => (showUnusedHalfEdges = !showUnusedHalfEdges)}
+						>
+							{#if missingHalfEdges.length}
+								<AlertTriangle size={14} />
+							{:else}
+								<CheckCircle2 size={15} />
+							{/if}
+						</button>
+						{#if showUnusedHalfEdges}
+							<div class="unused-popover" role="status">
+								{#if missingHalfEdges.length}
+									<strong>Unused half-edges</strong>
+									<span>{formatHalfEdges(missingHalfEdges)}</span>
+								{:else}
+									<strong>All half-edges are attached to vertices</strong>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</div>
+				{#if invalidHalfEdges.length}
+					<p class="field-warning">
+						Out of range for current edge count/orbifold edges: {formatHalfEdges(invalidHalfEdges)}
+					</p>
+				{/if}
 				<div class="cycle-list">
 					{#each rows as row, index}
 						<CycleRow
@@ -228,10 +354,10 @@
 
 			<div class="field-group">
 				<span class="label">Display toggles</span>
-				<label class="switch"><input type="checkbox" bind:checked={showOrderArrows} disabled={disabled} /> Show cyclic ordering as arrows</label>
-				<label class="switch"><input type="checkbox" bind:checked={showHalfEdgeLabels} disabled={disabled} /> Half-edge labels</label>
-				<label class="switch"><input type="checkbox" bind:checked={showMultiplicityLabels} disabled={disabled} /> Multiplicity labels</label>
-				<label class="switch"><input type="checkbox" bind:checked={showEdgeLabels} disabled={disabled} /> Edge labels</label>
+				<label class="switch"><input type="checkbox" checked={showOrderArrows} disabled={disabled} onchange={(event) => updateDisplayToggle('showOrderArrows', event.currentTarget.checked)} /> Show cyclic ordering as arrows</label>
+				<label class="switch"><input type="checkbox" checked={showHalfEdgeLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showHalfEdgeLabels', event.currentTarget.checked)} /> Half-edge labels</label>
+				<label class="switch"><input type="checkbox" checked={showMultiplicityLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showMultiplicityLabels', event.currentTarget.checked)} /> Multiplicity labels</label>
+				<label class="switch"><input type="checkbox" checked={showEdgeLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showEdgeLabels', event.currentTarget.checked)} /> Edge labels</label>
 			</div>
 
 			<div class="field-group">
@@ -244,9 +370,11 @@
 
 			<div class="field-group">
 				<span class="label">Initial vertices layout</span>
-				<label class="radio"><input type="radio" bind:group={layout} value="circle" disabled={disabled} /> Circle</label>
-				<label class="radio"><input type="radio" bind:group={layout} value="grid" disabled={disabled} /> Grid</label>
-				<label class="radio"><input type="radio" bind:group={layout} value="line" disabled={disabled} /> Line</label>
+				<div class="layout-radio-row">
+					<label class="radio"><input type="radio" bind:group={layout} value="circle" disabled={disabled} /> Circle</label>
+					<label class="radio"><input type="radio" bind:group={layout} value="grid" disabled={disabled} /> Grid</label>
+					<label class="radio"><input type="radio" bind:group={layout} value="line" disabled={disabled} /> Line</label>
+				</div>
 			</div>
 
 			<div class="field-group">
@@ -380,22 +508,95 @@
 
 	.compact-h-display {
 		min-width: 70px;
-		border: 1px solid var(--border);
+		border: 1px solid color-mix(in srgb, var(--border) 65%, var(--text-secondary));
 		border-radius: 6px;
-		background: var(--bg-primary);
-		color: var(--text-secondary);
+		background: color-mix(in srgb, var(--bg-primary) 82%, var(--text-secondary));
+		color: var(--text-primary);
 		padding: 8px;
 		font-family: var(--font-mono);
 		font-size: 12px;
+		font-weight: 700;
 		line-height: 1;
 		text-align: center;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-primary) 60%, var(--border));
+	}
+
+	.field-error,
+	.field-warning {
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.35;
 	}
 
 	.field-error {
-		margin: 0;
 		color: var(--danger);
+	}
+
+	.field-warning {
+		border-left: 3px solid var(--warning);
+		background: color-mix(in srgb, var(--warning) 12%, transparent);
+		color: var(--text-primary);
+		padding: 6px 8px;
+	}
+
+	.cycle-heading {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.unused-info {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.info-button {
+		display: inline-grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		border: 0;
+		border-bottom: 1px dashed currentColor;
+		border-radius: 4px;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.info-button.incomplete {
+		color: var(--warning);
+	}
+
+	.info-button.complete {
+		color: var(--success);
+	}
+
+	.unused-popover {
+		position: absolute;
+		z-index: 3;
+		top: calc(100% + 6px);
+		right: 0;
+		display: grid;
+		gap: 4px;
+		width: min(220px, 70vw);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-panel);
+		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+		padding: 8px 10px;
 		font-size: 12px;
 		line-height: 1.35;
+	}
+
+	.unused-popover strong {
+		color: var(--text-primary);
+	}
+
+	.unused-popover span {
+		color: var(--text-secondary);
+		font-family: var(--font-mono);
 	}
 
 	.cycle-list {
@@ -418,6 +619,17 @@
 		align-items: center;
 		color: var(--text-primary);
 		font-size: 14px;
+	}
+
+	.layout-radio-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 14px;
+	}
+
+	.layout-radio-row .radio {
+		display: inline-grid;
+		width: auto;
 	}
 
 	.switch input,

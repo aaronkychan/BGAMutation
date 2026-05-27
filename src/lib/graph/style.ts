@@ -40,7 +40,9 @@ export function createStylesheet(): cytoscape.StylesheetCSS[] {
                 label: "data(multiplicityLabel)",
                 "font-family": "var(--font-mono)",
                 "font-size": 11,
-                "text-margin-y": -18,
+                "font-weight": 700,
+                "text-margin-y": 0,
+                "text-outline-width": 0,
                 "border-width": 2,
                 "border-color": cssVar("--vertex-hollow-border"),
             },
@@ -49,12 +51,14 @@ export function createStylesheet(): cytoscape.StylesheetCSS[] {
             selector: ".v-node.hollow",
             css: {
                 "background-color": cssVar("--bg-primary"),
+                color: cssVar("--vertex-filled"),
             },
         },
         {
             selector: ".v-node.filled",
             css: {
                 "background-color": cssVar("--vertex-filled"),
+                color: cssVar("--bg-primary"),
             },
         },
         {
@@ -80,6 +84,17 @@ export function createStylesheet(): cytoscape.StylesheetCSS[] {
                 opacity: 1,
                 "background-opacity": 0,
                 "border-opacity": 0,
+            },
+        },
+        {
+            selector: ".ordering-arrow-point",
+            css: {
+                width: 1,
+                height: 1,
+                opacity: 0,
+                "background-opacity": 0,
+                "border-opacity": 0,
+                events: "no",
             },
         },
         {
@@ -159,9 +174,13 @@ export function createStylesheet(): cytoscape.StylesheetCSS[] {
         {
             selector: ".ordering-arrow.singleton",
             css: {
-                "curve-style": "bezier",
-                "loop-direction": "data(loopDirection)",
-                "loop-sweep": "data(loopSweep)",
+                "curve-style": "unbundled-bezier",
+            },
+        },
+        {
+            selector: ".ordering-arrow.no-arrowhead",
+            css: {
+                "target-arrow-shape": "none",
             },
         },
     ];

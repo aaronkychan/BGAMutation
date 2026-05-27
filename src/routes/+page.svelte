@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { BrauerGraph } from '$lib/math/types';
+	import type { SavedFile } from '$lib/math/types';
 	import { defaultRenderOptions, type RenderOptions } from '$lib/graph/types';
 	import { validateBrauerGraph } from '$lib/math/ribbon';
 	import { graphState } from '$lib/state/graph.svelte';
@@ -26,7 +27,18 @@
 	function clearGraph() {
 		graphState.graph = null;
 		graphState.mode = 'idle';
+		graphState.pendingSavedFile = null;
+		renderOptions = defaultRenderOptions;
 		validationErrors = [];
+	}
+
+	function loadSavedFile(savedFile: SavedFile) {
+		graphState.graph = savedFile.graph;
+		graphState.mode = 'idle';
+		graphState.pendingSavedFile = savedFile;
+		renderOptions = savedFile.renderOptions ?? renderOptions;
+		validationErrors = [];
+		drawerOpen = false;
 	}
 </script>
 
@@ -45,8 +57,11 @@
 		<div class="control-region">
 			<ControlPanel
 				graph={graphState.graph}
+				{renderOptions}
 				onDraw={drawGraph}
 				onClear={clearGraph}
+				onRenderOptionsChange={(options) => (renderOptions = options)}
+				onLoadSavedFile={loadSavedFile}
 				errors={validationErrors}
 			/>
 		</div>

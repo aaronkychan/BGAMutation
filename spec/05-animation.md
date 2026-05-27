@@ -18,10 +18,12 @@ Animation is visual only. It must not discard current graph-editing state:
 
 1. User clicks "Mutate edge" (in Mutation controls, Panel 1).
 2. Canvas enters single-edge selection mode. The floating info bar in Panel 2 shows: _"Click an edge to mutate it."_
-3. User clicks any component (half-edge arm, anchor, or connecting arc) of an edge $X$ — identified by `edgeId`.
-4. All components of edge $X$ are highlighted in `var(--highlight-color)` (cerulean blue).
-5. Animation plays automatically (Phase 1-3 below).
-6. On completion, the graph is redrawn with the updated $\sigma_0$ (Step 1-4 below). The description of the new $\sigma_0$ is described in the "Mutation algorithm" section.
+3. While in this selection mode, hovering over any edge component with an `edgeId` shows a pointer cursor.
+4. User clicks any component (half-edge arm, anchor, or connecting arc) of an edge $X$ — identified by `edgeId`.
+5. Before colour-flow animation starts, thicken all full edges involved in the local move: the selected edge $X$, plus the next full edge(s) in the cyclic ordering at the endpoint vertices for left mutation, or the previous full edge(s) for right mutation. For ordinary selected edges this normally means two or three full edges total.
+6. Pause briefly with those involved edges thickened.
+7. Animation plays automatically (Phase 1-3 below).
+8. On completion, the graph is redrawn with the updated $\sigma_0$ (Step 1-4 below). The description of the new $\sigma_0$ is described in the "Mutation algorithm" section.
 
 ### ID helpers required (`src/lib/graph/ids.ts`)
 
@@ -175,8 +177,10 @@ function getAnimationColors(cy: cytoscape.Core): {
 ### Animation constants (`src/lib/graph/constants.ts`)
 
 ```ts
-export const ANIMATION_TOTAL_MS = 1000; // total; tune during development
+export const ANIMATION_TOTAL_MS = 2400; // total; tune during development
 export const ANIMATION_POST_MS = 500; // pause after animation before graph update
+export const ANIMATION_INVOLVED_EDGE_PAUSE_MS = 450; // pause after thickening involved edges
+export const ANIMATION_SELECTED_EDGE_PAUSE_MS = 550; // pause after the selected full edge has changed colour
 // Phase durations (adjust ratios as needed):
 export const ANIMATION_PHASE1_MS = Math.round(ANIMATION_TOTAL_MS * 0.25);
 export const ANIMATION_PHASE2_MS = Math.round(ANIMATION_TOTAL_MS * 0.25);
@@ -247,14 +251,18 @@ await Promise.all(
 );
 ```
 
-### Phase 3 — Highlight spreads outward through $e_i$ for each fan
+Pause for `ANIMATION_SELECTED_EDGE_PAUSE_MS` after Phase 2, so the whole selected edge
+(connecting arc plus half-edge arms) visibly reaches the highlight colour before
+neighbouring edges begin changing.
+
+### Phase 3 — Highlight spreads outward through neighbouring edge(s) for each fan
 
 Triggered when Phase 2 completes.
 
 For each fan $\mathcal{X}_i$ where Rule 2 applies (i.e. $e_i \notin \widetilde{\mathcal{X}}$,
 meaning left mutation actually modifies the cyclic ordering for this fan):
 
-Let $e_i = \sigma_0^{-1}(h_{i,1})$ for left mutation, and $e_i=\sigma_0(h_{i,k+1})$ for right mutation; these are the half-edges immediately before and after the fan $\mathcal{X}_i$ respectively.
+For animation, let $e_i = \sigma_0(h_{i,k+1})$ for left mutation, and $e_i=\sigma_0^{-1}(h_{i,1})$ for right mutation; these are the next and previous half-edges adjacent to the fan in the direction the user expects to inspect visually.
 Let $V(e_i)$ denote the vertex node of the vertex whose $\sigma_0$-cycle contains $e_i$.
 
 Retrieve elements:

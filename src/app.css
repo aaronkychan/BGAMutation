@@ -23,6 +23,8 @@
 	--accent-contrast: #ffffff;
 	--section-title: #244f91;
 	--danger: #b42318;
+	--warning: #a15c00;
+	--success: #15803d;
 	--vertex-filled: #1a1a1a;
 	--vertex-hollow-border: #1a1a1a;
 	--edge-color: #444440;
@@ -47,6 +49,8 @@
 	--accent-contrast: #111116;
 	--section-title: #9bc3ff;
 	--danger: #ff8a7a;
+	--warning: #ffbd6e;
+	--success: #62d583;
 	--vertex-filled: #e8e8e0;
 	--vertex-hollow-border: #e8e8e0;
 	--edge-color: #bbbbbb;

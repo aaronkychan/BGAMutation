@@ -7,3 +7,18 @@ export function downloadJson(filename: string, value: unknown): void {
 	link.click();
 	URL.revokeObjectURL(url);
 }
+
+export function readJsonFile(file: File): Promise<unknown> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => {
+			try {
+				resolve(JSON.parse(String(reader.result)));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		reader.onerror = () => reject(reader.error);
+		reader.readAsText(file);
+	});
+}

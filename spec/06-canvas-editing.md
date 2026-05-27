@@ -4,7 +4,7 @@
 
 When accordion B ("Edit graph on canvas") is open:
 
-- All content in accordion A (Numerical input) is disabled.
+- All content in accordion A (Numerical edit) is disabled.
 - Info box and Mutation controls remain active.
 - Draw / Clear buttons are disabled (they live inside accordion A).
 - There will be a Brauer graph data sotred in the background that keep track of the data shown on the canvas (it may not be a proper valid Brauer graph).

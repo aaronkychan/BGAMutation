@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { BrauerGraph } from '$lib/math/types';
+	import type { SavedFile } from '$lib/math/types';
 	import type { RenderOptions } from '$lib/graph/types';
 	import CanvasAccordion from './CanvasAccordion.svelte';
 	import InfoBox from './InfoBox.svelte';
@@ -9,13 +10,19 @@
 
 	let {
 		graph,
+		renderOptions,
 		onDraw,
 		onClear,
+		onRenderOptionsChange,
+		onLoadSavedFile,
 		errors = []
 	}: {
 		graph: BrauerGraph | null;
+		renderOptions: RenderOptions;
 		onDraw: (graph: BrauerGraph, options: RenderOptions) => boolean;
 		onClear: () => void;
+		onRenderOptionsChange: (options: RenderOptions) => void;
+		onLoadSavedFile: (savedFile: SavedFile) => void;
 		errors?: { field: string; message: string }[];
 	} = $props();
 
@@ -30,11 +37,14 @@
 
 <aside class="control-panel" aria-label="Controls">
 	<NumericalAccordion
+		currentGraph={graph}
 		open={openAccordion === 'numerical'}
 		disabled={openAccordion === 'canvas'}
 		onToggle={() => (openAccordion = 'numerical')}
 		onDraw={drawAndSwitchToCanvas}
+		{onRenderOptionsChange}
 		{onClear}
+		{renderOptions}
 		{errors}
 	/>
 	<CanvasAccordion
@@ -43,7 +53,7 @@
 	/>
 	<InfoBox {graph} />
 	<MutationControls />
-	<SaveLoad />
+	<SaveLoad {graph} {renderOptions} onLoad={onLoadSavedFile} />
 </aside>
 
 <style>

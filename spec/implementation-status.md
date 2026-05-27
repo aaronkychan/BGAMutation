@@ -4,7 +4,7 @@ This file tracks implemented scope, verification, and known problems discovered 
 
 ## Stage 0: UI Layout
 
-Status: started
+Status: functionally complete
 
 Implemented:
 
@@ -16,6 +16,8 @@ Implemented:
     - Always-visible orbifold edge input; empty input indicates ordinary Brauer graph.
     - Compact `#ordinary edges` display.
     - Vertex cycle rows with multiplicity inputs and remove buttons.
+    - Edge-count and orbifold-edge edits preserve existing cycle rows and report out-of-range half-edges immediately.
+    - Clickable unused-half-edge info control for the cyclic ordering area.
     - Add vertex action, including focus transfer to the new row's cycle input.
     - Display toggles.
     - Ordering direction segmented control.
@@ -24,8 +26,12 @@ Implemented:
     - Draw graph and Clear actions.
 - `CanvasAccordion` button list, currently disabled pending canvas editing implementation.
 - `InfoBox` showing current graph type, vertex count, edge count, and orbifold count/genus placeholder.
-- `MutationControls` placeholder buttons, disabled pending mutation workflow implementation.
-- `SaveLoad` placeholder buttons, disabled pending save/load implementation.
+- `MutationControls` left/right mutation buttons, enabled once a graph is rendered.
+- `SaveLoad` browser-file workflow:
+    - Save current opens a label modal, stores the saved graph locally, and downloads a single `SavedFile` JSON snapshot.
+    - Saved graph selector and Load selected restore graph data, render options, and Cytoscape JSON state.
+    - Export all downloads the locally stored saved graph list.
+    - Import accepts a single saved graph or an exported array and loads the first imported graph.
 - `DisplayPanel` placeholder Cytoscape surface and SVG overlay.
 - `Modal` component with Enter confirm, Escape cancel, and focus cycling.
 - Predefined examples from `spec/01-data-model.md` added to `src/lib/math/examples.ts`.
@@ -42,16 +48,10 @@ Verified:
 
 Known problems / gaps:
 
-1. Cytoscape rendering is not wired yet; `DisplayPanel` is still a placeholder.
-2. Graph validation is not wired into `Draw graph` yet.
-3. `InfoBox` face count, genus calculation, connectedness, and warning behavior are placeholders.
-4. Canvas editing buttons are present but disabled.
-5. Mutation buttons are present but disabled.
-6. Save/load buttons are present but disabled.
-7. Display toggles and ordering direction are UI-only; they are not connected to rendering state.
-8. Initial vertex layout selection is accepted by the form but not used yet.
-9. The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
-10. Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
+1. Canvas editing buttons are present but disabled.
+2. Edge-editing anchor handle data is currently represented by saved Cytoscape edge data; full `cytoscape-edge-editing` anchor serialization will be completed when edge-editing handles are wired.
+3. The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
+4. Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
 
 Resolved problems:
 
@@ -60,11 +60,11 @@ Resolved problems:
 
 Problems that do not require immediate resolution:
 
-- Problems 1-8 will be fixed in later stages.
+- Problems 1-2 will be fixed in later stages.
 
 ## Stage 1: Graph Presentation
 
-Status: started
+Status: functionally complete
 
 Implemented:
 
@@ -74,22 +74,26 @@ Implemented:
     - `validateBrauerGraph`
     - `computeTopologyMetrics`
 - `src/lib/graph/ids.ts`
-    - Ordering arrow ID helper.
+    - Node, edge, ordering-arrow, and ordering-arrow-point ID helpers.
 - `src/lib/graph/elements.ts`
     - Cytoscape element generation for vertex nodes, anchor nodes, half-edge arms, ordinary connecting edges, orbifold ends, orbifold connecting edges, and cyclic ordering arrows.
     - Initial anchor and orbifold-end positions derived analytically from vertex positions.
     - Logical edge `edgeId` data applied to arms, anchors, and connecting edges.
+    - Arm-Tangent Bezier control data for generated ordinary connecting edges.
+    - Circular-arc cyclic ordering arrows, including valency-one and valency-two special cases.
 - `src/lib/graph/style.ts`
     - Cytoscape stylesheet using CSS custom properties for light/dark themes.
     - Hollow/filled vertex rendering based on multiplicity.
-    - Half-edge labels, multiplicity labels, edge labels, orbifold cross marker, and cyclic ordering arrow styling.
+    - Half-edge labels, centred in-vertex multiplicity labels, edge labels, orbifold cross marker, and cyclic ordering arrow styling.
 - `DisplayPanel.svelte`
     - Cytoscape mount with preset layout.
     - Draws validated graph data from numerical input.
+    - Saves and restores Cytoscape JSON snapshots for Save/Load.
+    - Applies display-toggle changes in place for an already-rendered graph without recomputing layout or resetting current positions.
     - Re-applies stylesheet on theme changes.
     - Vertex multiplicity tooltip on hover/tap.
-    - Vertex drag-end rigidly translates associated anchors and orbifold ends in the same star.
-- Numerical input draw flow
+    - Vertex/anchor/orbifold drag rigidly translates the associated star and recomputes incident ordinary-edge Bezier controls from current tangent directions.
+- Numerical edit draw flow
     - Validates before drawing.
     - Emits inline validation messages under relevant inputs.
     - Passes display toggles, ordering direction, and initial layout choice to rendering.
@@ -109,13 +113,9 @@ Verified:
 
 Known problems / gaps:
 
-1. Bezier control points for ordinary connecting edges are a simple initial default, not yet tuned to match the exact outgoing half-edge directions at both ends.
-2. Cytoscape edge-editing anchor handle initialization is not wired yet.
-3. Save/load restoration of Cytoscape positions and edge anchors is not wired yet.
-4. Display toggles update on redraw; they are not live-updated against an already-rendered graph without pressing `Draw graph` again.
-5. Cyclic ordering singleton arrows use Cytoscape loop styling but may need visual tuning.
-6. Canvas Edit mode procedures are specified but not fully implemented yet: Undo, Adjust emanating angle, Rotate vertex, and in-place reconnect arc Bezier refresh.
-7. Normal rendering must continue to ensure half-edge arms and connecting edges visually meet at invisible anchors without an anchor-sized gap.
+1. Cytoscape edge-editing anchor handle initialization is not wired yet.
+2. Full `cytoscape-edge-editing` anchor handle serialization is not wired yet because edge-editing handles are not initialized yet.
+3. Canvas Edit mode procedures are specified but not fully implemented yet: Undo, Adjust emanating angle, Rotate vertex, and in-place reconnect arc Bezier refresh.
 
 Resolved problems:
 
@@ -124,14 +124,58 @@ Resolved problems:
   - Successful `Draw graph` now immediately switches Panel 1 from numerical input to Canvas Edit mode.
   - Anchor nodes are visually hidden by default; half-edge labels can still be displayed without drawing anchor circles.
   - Dragging any vertex, anchor, or orbifold endpoint now translates the associated star-shaped subgraph as a rigid unit instead of changing arm lengths.
-  - Generated ordinary connecting edges now store per-edge Bezier control values derived from endpoint arm directions, using `BEZIER_CONTROL_LENGTH`.
+  - Generated ordinary connecting edges now store per-edge Bezier control values derived from explicit endpoint tangent controls in the half-edge arm directions, using `BEZIER_CONTROL_LENGTH`.
   - `CycleRow` cyclic-order label/input layout was repaired so the vertex label and cycle input stay on one line.
   - Numerical field labels no longer force uppercase, preserving mathematical notation such as `σ₀`.
+- Cyclic ordering arrows now render as circular arcs at radius `ARM_LENGTH` from the vertex centre. For valency-one vertices, the loop is approximated by four quarter-arc segments around the vertex.
 
 Problems that do not require immediate resolution:
 
-- Problem 2 will be implemented in a later stage.
-- Problem 3 will be implemented in the next stage.
+- Problems 1-3 belong to Canvas Edit or later interactive editing stages.
+
+## Stage 2: Mutation
+
+Status: initial implementation
+
+Implemented:
+
+- `src/lib/math/kaur.ts`
+    - Fan decomposition for selected half-edge sets.
+    - Edge-orbit selection helper, including orbifold fixed-edge handling.
+    - Left and right irreducible mutation on the `sigma0` successor map.
+    - Stable reconstruction of `sigma0` cycles after mutation.
+- `MutationControls.svelte`
+    - Left and right mutation buttons become available once a graph exists.
+    - Button state switches the app into edge-selection mode.
+- `DisplayPanel.svelte`
+    - Clicking a rendered logical edge while in mutation-selection mode mutates that edge.
+    - Mutation uses the Stage 2 requestAnimationFrame gradient animation flow before applying the graph update.
+    - The graph is rebuilt from the mutated `BrauerGraph`.
+    - Current vertex positions are snapshotted before the graph-store update and preserved by vertex index across the rebuild.
+    - New/rebuilt ordinary connecting edges are initialised with Arm-Tangent Bezier Construction.
+- `NumericalAccordion.svelte`
+    - While Canvas mode owns the rendered graph, the numerical edit fields sync from the current `BrauerGraph`, so post-mutation cyclic orderings are visible when returning to Numerical edit.
+- `src/lib/graph/animate.ts`
+    - Canvas-safe gradient edge animation primitive using Cytoscape `line-fill: linear-gradient`.
+    - Phase 1 selected-edge spread, Phase 2 inward arm flow, and Phase 3 neighbouring-edge fan flow for left/right irreducible mutation.
+    - Involved full edges are thickened before colour-flow animation starts: selected edge plus next endpoint-neighbour edge(s) for left mutation or previous endpoint-neighbour edge(s) for right mutation.
+    - Animation timing is slowed down, with a pause after involved-edge thickening and another pause after the selected full edge reaches the highlight colour.
+    - Temporary animation styles are restored before the graph is rebuilt.
+- `DisplayPanel.svelte`
+    - Mutation edge-selection mode shows a pointer cursor while hovering selectable edge components.
+
+Verified:
+
+- `bun run check` passes with 0 errors and 0 warnings.
+- `bun run build` passes and writes static output to `docs/`.
+- Mutation validity smoke test passed across every bundled example, both left and right mutation, and every edge. Each result passed `validateBrauerGraph`.
+
+Known problems / gaps:
+
+1. Vertex positions are preserved by index. This is adequate for the current examples, but mutations that split/merge cycles may need a more mathematical placement rule for newly created vertices.
+2. Multiplicity transport currently preserves multiplicity by resulting cycle index and defaults newly created cycles to multiplicity `1`. This needs mathematical confirmation for split/merge mutation cases.
+3. Since Canvas Edit anchor-angle and edge-handle editing are not implemented yet, mutation rebuilds cannot yet preserve future user-adjusted anchor angles or edge handles. The relevant preservation requirement is recorded in `02-mutation.md`.
+4. The Stage 2 animation is implemented, but it still needs browser visual inspection against `05-animation.md` for exact directionality on complicated orbifold cases.
 
 ## Spec-Integrated Pending Work
 
@@ -143,9 +187,9 @@ These items from `spec/things-to-improve.md` have been folded into the canonical
     - Dragging a vertex, anchor, or orbifold endpoint outside dedicated angle-adjustment mode translates the entire star-shaped subgraph rigidly.
     - Ordinary connecting edges created by rendering or reconnect flows use Arm-Tangent Bezier Construction.
 - `spec/04-ui.md`
-    - Numerical input uses always-visible `orbifoldEdges` and compact `#ordinary edges` display.
+    - Numerical edit uses always-visible `orbifoldEdges` and compact `#ordinary edges` display.
     - Add vertex moves focus to the newly added cycle input.
-    - Display toggles must update an already-rendered Cytoscape graph in place.
+    - Display toggles update an already-rendered Cytoscape graph in place.
     - Canvas Edit includes Undo, Adjust emanating angle, and Rotate vertex controls.
 - `spec/06-canvas-editing.md`
     - Undo snapshots graph data, Cytoscape positions, Bezier control data, and relevant display state before mutating canvas edits.

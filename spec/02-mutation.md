@@ -7,6 +7,7 @@ Stage 2 mutation depends on the current rendering/editing state model:
 - Mutation must operate on the current in-memory `BrauerGraph`, current Cytoscape node positions, and any current ordinary-edge Bezier controls, not only on the original numerical-input layout.
 - Before a mutation changes the graph, push an undo snapshot as described in `06-canvas-editing.md` if the mutation is exposed as a user-visible canvas operation.
 - During graph update after animation, preserve user-positioned vertex nodes, manually adjusted arm angles for unaffected stars, and user-edited Bezier controls for unaffected ordinary connecting edges.
+- During any mutation-driven star movement or rebuild, ordinary connecting edges incident to moved/rebuilt anchors must preserve the visual tangent invariant: after endpoint positions change, recompute Arm-Tangent Bezier Construction from the current vertex and anchor positions unless a user-edited curve is being explicitly restored.
 - When mutation creates, retargets, or rebuilds an ordinary connecting edge without a saved/user-edited control to preserve, initialise that edge with Arm-Tangent Bezier Construction from `03-rendering.md`.
 - Mutation updates must not re-run the full initial layout unless the user explicitly requests a redraw from numerical input.
 
