@@ -20,10 +20,14 @@ Animation is visual only. It must not discard current graph-editing state:
 2. Canvas enters single-edge selection mode. The floating info bar in Panel 2 shows: _"Click an edge to mutate it."_
 3. While in this selection mode, hovering over any edge component with an `edgeId` shows a pointer cursor.
 4. User clicks any component (half-edge arm, anchor, or connecting arc) of an edge $X$ — identified by `edgeId`.
-5. Before colour-flow animation starts, thicken all full edges involved in the local move: the selected edge $X$, plus the next full edge(s) in the cyclic ordering at the endpoint vertices for left mutation, or the previous full edge(s) for right mutation. For ordinary selected edges this normally means two or three full edges total.
-6. Pause briefly with those involved edges thickened.
-7. Animation plays automatically (Phase 1-3 below).
-8. On completion, the graph is redrawn with the updated $\sigma_0$ (Step 1-4 below). The description of the new $\sigma_0$ is described in the "Mutation algorithm" section.
+5. Before colour-flow animation starts, thicken all full edges involved in the local move: the selected edge $X$, plus the previous full edge(s) in the cyclic ordering at the endpoint vertices for left mutation, or the next full edge(s) for right mutation. For ordinary selected edges this normally means two or three full edges total. Do not leave neighbouring edges colour-filled at this stage.
+6. Show a temporary canvas info message: _"Invovled edges highlighted"_.
+7. Blink the involved full edges twice in the normal edge colour by toggling opacity, then restore normal visibility while keeping the thickened widths.
+8. Show _"Concatenating arcs"_ while the colour-flow animation plays automatically (Phase 1-3 below).
+9. On animation completion, show a temporary canvas info message: _"Graph updated"_.
+10. Pause for `ANIMATION_POST_MS`; during this pause, keep the neighbouring full edges in their orange/green neighbour colours instead of restoring the whole graph to grey.
+11. The existing Cytoscape canvas is updated imperatively with the updated $\sigma_0$ (Step 1-4 in `02-mutation.md`). Do not redraw from initial layout or use reactive mathematical state assignment to drive the canvas.
+12. Immediately apply the same neighbouring full-edge colours to the updated Cytoscape elements, keep them colour-filled for `ANIMATION_POST_UPDATE_COLOR_MS`, then clear them back to the normal stylesheet colour.
 
 ### ID helpers required (`src/lib/graph/ids.ts`)
 
@@ -63,6 +67,20 @@ toward the other, implemented via Cytoscape's `line-fill: linear-gradient` style
 with three gradient stops. The stop colours are fixed per edge per phase; only the stop
 positions change on each animation frame. After animation completes, all affected edges are
 restored to `line-fill: solid`.
+
+Mutation animation uses three flow colours:
+
+- `--highlight-color` for the selected full edge and its endpoint arms.
+- `--mutation-neighbor-a-color` for the neighbour flow from one endpoint side.
+- `--mutation-neighbor-b-color` for the neighbour flow from the other endpoint side.
+
+The selected edge endpoint vertex nodes are temporarily coloured with `--highlight-color`
+after Phase 2 finishes, so the two endpoint vertices of the edge being mutated are visible
+during the neighbouring-edge flow. After the neighbouring-edge flow finishes, temporarily
+colour the vertex nodes at the other endpoints of those neighbouring edges with their
+neighbour-side colours. These temporary vertex colours must preserve multiplicity
+rendering: colour only the vertex border, leaving the background fill unchanged. Thus
+hollow vertices remain hollow and filled higher-multiplicity vertices remain filled.
 
 **Important**: while `line-fill: linear-gradient` is active on an element, Cytoscape's
 built-in `ele.animate()` cannot be used simultaneously on that element. All animation
@@ -178,14 +196,18 @@ function getAnimationColors(cy: cytoscape.Core): {
 
 ```ts
 export const ANIMATION_TOTAL_MS = 2400; // total; tune during development
-export const ANIMATION_POST_MS = 500; // pause after animation before graph update
+export const ANIMATION_POST_MS = 1000; // pause after animation before graph update
 export const ANIMATION_INVOLVED_EDGE_PAUSE_MS = 450; // pause after thickening involved edges
 export const ANIMATION_SELECTED_EDGE_PAUSE_MS = 550; // pause after the selected full edge has changed colour
+export const ANIMATION_INVOLVED_EDGE_BLINK_MS = 420; // half-period for two involved-edge opacity blinks
+export const ANIMATION_FINAL_VERTEX_PAUSE_MS = 1800; // pause after final endpoint vertices are coloured
+export const ANIMATION_POST_UPDATE_COLOR_MS = 2000; // keep neighbour colours after graph update
 // Phase durations (adjust ratios as needed):
 export const ANIMATION_PHASE1_MS = Math.round(ANIMATION_TOTAL_MS * 0.25);
 export const ANIMATION_PHASE2_MS = Math.round(ANIMATION_TOTAL_MS * 0.25);
 export const ANIMATION_PHASE3_MS = Math.round(ANIMATION_TOTAL_MS * 0.5);
-// Phase 3 sub-flow: 3 sequential edges each get 1/3 of ANIMATION_PHASE3_MS
+export const ANIMATION_NEIGHBOR_PHASE_MS = ANIMATION_PHASE3_MS * 2;
+// Phase 3 neighbour sub-flow: 3 sequential edges each get 1/3 of ANIMATION_NEIGHBOR_PHASE_MS
 ```
 
 ---
@@ -232,8 +254,9 @@ For each selected orbifold edge $X_i = \{x\}$, one arm:
 - `he-p{x}`: flow from `u-p{x}` toward its vertex. → `'reverse'`.
   (No arm on the orbifold end; the cross `orb-x{x}` has no vertex to flow into.)
 
-Note: the vertex nodes themselves are **not** highlighted; the flow stops upon reaching
-the vertex node end of the arm.
+Note: the flow on the half-edge arms stops upon reaching the vertex node end of the arm.
+After Phase 2 finishes, the endpoint vertex node borders are temporarily coloured as
+described above, preserving whether each vertex is hollow or filled.
 
 ```ts
 await Promise.all(
@@ -253,7 +276,8 @@ await Promise.all(
 
 Pause for `ANIMATION_SELECTED_EDGE_PAUSE_MS` after Phase 2, so the whole selected edge
 (connecting arc plus half-edge arms) visibly reaches the highlight colour before
-neighbouring edges begin changing.
+neighbouring edges begin changing. At this point, also temporarily colour the endpoint
+vertex nodes of the selected edge with the selected-edge flow colour.
 
 ### Phase 3 — Highlight spreads outward through neighbouring edge(s) for each fan
 
@@ -262,8 +286,17 @@ Triggered when Phase 2 completes.
 For each fan $\mathcal{X}_i$ where Rule 2 applies (i.e. $e_i \notin \widetilde{\mathcal{X}}$,
 meaning left mutation actually modifies the cyclic ordering for this fan):
 
-For animation, let $e_i = \sigma_0(h_{i,k+1})$ for left mutation, and $e_i=\sigma_0^{-1}(h_{i,1})$ for right mutation; these are the next and previous half-edges adjacent to the fan in the direction the user expects to inspect visually.
-Let $V(e_i)$ denote the vertex node of the vertex whose $\sigma_0$-cycle contains $e_i$.
+For animation, determine neighbouring flow sides from the selected endpoint half-edges,
+not from the fan list. For each selected half-edge $x \in X$, scan in the mutation
+direction to the first non-selected half-edge: use repeated $\sigma_0^{-1}$ for left
+mutation and repeated $\sigma_0$ for right mutation.
+This preserves two coloured neighbouring-side flows for an ordinary selected edge even
+when fan decomposition merges adjacent selected half-edges or when the immediate
+neighbour of one endpoint is the other selected endpoint.
+For the corresponding fan-rule notation, this agrees with $e_i=\sigma_0^{-1}(h_{i,1})$
+for left mutation and $e_i=\sigma_0(h_{i,k+1})$ for right mutation whenever that fan side
+is non-degenerate.
+Let $V(e_x)$ denote the vertex node of the vertex whose $\sigma_0$-cycle contains $e_x$.
 
 Retrieve elements:
 
@@ -284,17 +317,23 @@ Cytoscape source = $V(e_i)$, target = anchor → `'forward'`.
 `u-{tag(e_i)}` end toward the `u-{tag(-e_i)}` end. Determine `'forward'` or `'reverse'`
 at runtime from `ceEi.source().id()`.
 
+If the two neighbouring full edges identified from the two sides of an ordinary selected
+edge are the same full edge, the neighbouring flow stops in that shared edge. In that
+case, do not continue the flow through the opposite half-edge arm after animating the
+shared connecting edge.
+
 If $e_i$ is an **orbifold half-edge** ($e_i \in$ `orbifoldEdges`, so $\sigma_1(e_i) = e_i$):
-animate `ce-orb-{e_i}` from the `u-p{e_i}` end outward toward `orb-x{e_i}`. Then
-animate the same element back `'reverse'` (returning from cross toward anchor) to
-represent the wrap-around. These two mini-steps count together as Step 3b.
+animate `ce-orb-{e_i}` from the `u-p{e_i}` end outward toward `orb-x{e_i}` in the
+neighbour-side colour. Then pulse the orbifold cross `orb-x{e_i}`. Finally animate the
+same element back `'reverse'` (returning from cross toward anchor) in the selected-edge
+colour to distinguish the wrap-around pass from a plain bounce. After the backward pass,
+hold the orbifold connecting edge in the neighbour-side colour for the post-update colour
+hold. These three mini-steps count together as Step 3b.
 
 **Step 3c** (ordinary case only) — `he-{tag(-e_i)}`: flow from anchor `u-{tag(-e_i)}`
 end toward vertex $V(-e_i)$. Cytoscape source = $V(-e_i)$, target = anchor → `'reverse'`.
 
-All fans whose Rule 2 applies run their sub-flows **simultaneously**. Disjointness of
-the edge sets is guaranteed: since $\sigma_0$ partitions $H$, each half-edge belongs to
-exactly one $\sigma_0$-cycle, so the $e_i$ values for distinct fans are distinct elements of $H$, and their associated arms are therefore disjoint.
+The neighbouring side sub-flows run simultaneously, one for each endpoint side.
 
 ```ts
 const fanFlows = rule2Fans.map(
@@ -306,14 +345,14 @@ const fanFlows = rule2Fans.map(
                     "forward",
                     edgeColor,
                     highlightColor,
-                    ANIMATION_PHASE3_MS / 3,
+                    ANIMATION_NEIGHBOR_PHASE_MS / 3,
                 ),
             () =>
                 animateStep3b(
                     fan,
                     edgeColor,
                     highlightColor,
-                    ANIMATION_PHASE3_MS / 3,
+                    ANIMATION_NEIGHBOR_PHASE_MS / 3,
                 ),
             () =>
                 isOrdinary(ei, graph.orbifoldEdges) && heNEi
@@ -322,7 +361,7 @@ const fanFlows = rule2Fans.map(
                           "reverse",
                           edgeColor,
                           highlightColor,
-                          ANIMATION_PHASE3_MS / 3,
+                          ANIMATION_NEIGHBOR_PHASE_MS / 3,
                       )
                     : Promise.resolve(), // orbifold: no return arm
         ]),

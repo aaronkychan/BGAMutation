@@ -48,7 +48,7 @@ export const examples: GraphExample[] = [
 		graph: {
 			n: 3,
 			orbifoldEdges: [3],
-			sigma0: [[1, 2, 3], [-1, -2]],
+			sigma0: [[1, 2, -1, 3], [-2]],
 			multiplicity: [1, 1]
 		},
 		positions: {}

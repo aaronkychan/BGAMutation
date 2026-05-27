@@ -7,10 +7,12 @@
 	import AppHeader from '$lib/ui/AppHeader.svelte';
 	import ControlPanel from '$lib/ui/ControlPanel.svelte';
 	import DisplayPanel from '$lib/ui/DisplayPanel.svelte';
+	import type { CanvasController } from '$lib/ui/DisplayPanel.svelte';
 
 	let drawerOpen = $state(false);
 	let renderOptions = $state<RenderOptions>(defaultRenderOptions);
 	let validationErrors = $state<{ field: string; message: string }[]>([]);
+	let canvasController: CanvasController | null = null;
 
 	function drawGraph(graph: BrauerGraph, options: RenderOptions): boolean {
 		const errors = validateBrauerGraph(graph);
@@ -20,6 +22,7 @@
 		graphState.graph = graph;
 		graphState.mode = 'idle';
 		renderOptions = options;
+		canvasController?.drawGraph(graph, options);
 		drawerOpen = false;
 		return true;
 	}
@@ -27,17 +30,17 @@
 	function clearGraph() {
 		graphState.graph = null;
 		graphState.mode = 'idle';
-		graphState.pendingSavedFile = null;
 		renderOptions = defaultRenderOptions;
 		validationErrors = [];
+		canvasController?.clearGraph();
 	}
 
 	function loadSavedFile(savedFile: SavedFile) {
 		graphState.graph = savedFile.graph;
 		graphState.mode = 'idle';
-		graphState.pendingSavedFile = savedFile;
 		renderOptions = savedFile.renderOptions ?? renderOptions;
 		validationErrors = [];
+		canvasController?.loadSavedFile(savedFile, renderOptions);
 		drawerOpen = false;
 	}
 </script>
@@ -65,7 +68,11 @@
 				errors={validationErrors}
 			/>
 		</div>
-		<DisplayPanel graph={graphState.graph} options={renderOptions} />
+		<DisplayPanel
+			options={renderOptions}
+			onCanvasReady={(controller) => (canvasController = controller)}
+			onGraphMutated={(graph) => (graphState.graph = graph)}
+		/>
 	</div>
 </main>
 

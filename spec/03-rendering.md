@@ -75,6 +75,12 @@ For CW ordering, $j$ increments clockwise starting from north ($a_1^i$ points no
 
 Orbifold ends (`orb-x{h}`) use the same formula with the arm length $r_{arm}$ doubled that of the arm length to the anchor node `u-p{h}`.
 
+This equal-spacing formula is only the initial/default geometry. Once the graph is on the
+canvas, anchor and orbifold-end positions are live canvas state. Canvas Edit angle
+adjustments, vertex rotation, save/load, and mutation updates must preserve or explicitly
+transform existing anchor positions instead of regenerating equal spacing around the
+vertex.
+
 ### Drag Re-sync
 
 Listen to drag events on vertex nodes, anchor nodes, and orbifold-end nodes. Outside dedicated angle-adjustment mode, compute the translation delta $(\Delta x, \Delta y)$ from the dragged node's old position and apply it rigidly to all other nodes in the same $S(v_i)$. Do not re-run any layout. After each rigid star translation, recompute Arm-Tangent Bezier Construction control data for ordinary connecting edges incident to the moved star, using the current vertex and anchor positions.
@@ -122,7 +128,8 @@ Whenever an ordinary connecting edge `ce-{h}` is created automatically, use the 
 2. At `u-p{h}`, choose the first Bezier control direction to agree with the outgoing direction of the half-edge arm `he-p{h}` from its vertex node to `u-p{h}`.
 3. At `u-m{h}`, choose the second Bezier control direction to agree with the outgoing direction of the half-edge arm `he-m{h}` from its vertex node to `u-m{h}`.
 4. Use `BEZIER_CONTROL_LENGTH` as the initial length of both Bezier controls. The default is longer than `ARM_LENGTH` so the connecting curve follows the half-edge arm direction before it begins turning.
-5. Store the resulting Cytoscape control-point data on the connecting edge so later editing and save/load can preserve or restore it.
+5. If `h` and `-h` are attached to the same vertex and their half-edge arms point in opposite directions through the vertex centre, the two tangent controls are collinear with the source-target chord and the connecting curve can become visually hidden behind the arms. In this straight-through case, insert a third middle Bezier control at weight `0.5` with perpendicular distance `BEZIER_CONTROL_LENGTH`, so the ordinary connecting edge visibly bows to one side while preserving the endpoint tangent controls.
+6. Store the resulting Cytoscape control-point data on the connecting edge so later editing and save/load can preserve or restore it.
 
 This procedure applies when drawing a graph from numerical input and whenever Canvas Edit creates or replaces an ordinary connecting edge, including the `"Reconnect arc"` flow.
 

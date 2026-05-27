@@ -3,6 +3,7 @@
 	import type { SavedFile } from '$lib/math/types';
 	import type { RenderOptions } from '$lib/graph/types';
 	import CanvasAccordion from './CanvasAccordion.svelte';
+	import { graphState } from '$lib/state/graph.svelte';
 	import InfoBox from './InfoBox.svelte';
 	import MutationControls from './MutationControls.svelte';
 	import NumericalAccordion from './NumericalAccordion.svelte';
@@ -26,12 +27,17 @@
 		errors?: { field: string; message: string }[];
 	} = $props();
 
-	let openAccordion = $state<'numerical' | 'canvas'>('numerical');
+	let openAccordion = $state<'numerical' | 'canvas' | null>('numerical');
 
 	function drawAndSwitchToCanvas(nextGraph: BrauerGraph, options: RenderOptions) {
 		if (onDraw(nextGraph, options)) {
 			openAccordion = 'canvas';
 		}
+	}
+
+	function handleCanvasAction(action: string) {
+		if (action !== 'adjust-emanating-angle') return;
+		graphState.mode = graphState.mode === 'adjust-emanating-angle' ? 'idle' : 'adjust-emanating-angle';
 	}
 </script>
 
@@ -40,7 +46,7 @@
 		currentGraph={graph}
 		open={openAccordion === 'numerical'}
 		disabled={openAccordion === 'canvas'}
-		onToggle={() => (openAccordion = 'numerical')}
+		onToggle={() => (openAccordion = openAccordion === 'numerical' ? null : 'numerical')}
 		onDraw={drawAndSwitchToCanvas}
 		{onRenderOptionsChange}
 		{onClear}
@@ -49,7 +55,9 @@
 	/>
 	<CanvasAccordion
 		open={openAccordion === 'canvas'}
-		onToggle={() => (openAccordion = 'canvas')}
+		activeAction={graphState.mode === 'adjust-emanating-angle' ? 'adjust-emanating-angle' : ''}
+		onToggle={() => (openAccordion = openAccordion === 'canvas' ? null : 'canvas')}
+		onAction={handleCanvasAction}
 	/>
 	<InfoBox {graph} />
 	<MutationControls />

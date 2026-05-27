@@ -57,9 +57,10 @@ export function buildElements(
 		});
 
 		cycle.forEach((halfEdge, halfEdgeIndex) => {
-			const anchorPosition = computeAnchorPosition(vertexPosition, cycle.length, halfEdgeIndex, options.direction);
 			const edgeId = `p${Math.abs(halfEdge)}`;
 			const uId = anchorId(halfEdge);
+			const anchorPosition =
+				positions[uId] ?? computeAnchorPosition(vertexPosition, cycle.length, halfEdgeIndex, options.direction);
 
 			elements.push({
 				group: 'nodes',
@@ -89,14 +90,16 @@ export function buildElements(
 			});
 
 			if (orbifoldEdges.has(halfEdge)) {
-				const orbifoldPosition = computeAnchorPosition(
-					vertexPosition,
-					cycle.length,
-					halfEdgeIndex,
-					options.direction,
-					VERTEX_RADIUS + ARM_LENGTH + ORBIFOLD_EDGE_LENGTH
-				);
 				const oId = orbifoldEndId(halfEdge);
+				const orbifoldPosition =
+					positions[oId] ??
+					computeAnchorPosition(
+						vertexPosition,
+						cycle.length,
+						halfEdgeIndex,
+						options.direction,
+						VERTEX_RADIUS + ARM_LENGTH + ORBIFOLD_EDGE_LENGTH
+					);
 
 				elements.push({
 					group: 'nodes',
@@ -361,7 +364,9 @@ function getAnchorInfo(
 		if (!vertexPosition) return null;
 
 		return {
-			anchor: computeAnchorPosition(vertexPosition, cycle.length, halfEdgeIndex, options.direction),
+			anchor:
+				positions[anchorId(halfEdge)] ??
+				computeAnchorPosition(vertexPosition, cycle.length, halfEdgeIndex, options.direction),
 			vertex: vertexPosition
 		};
 	}
@@ -401,6 +406,14 @@ export function computeArmTangentBezierControls(
 	};
 	const sourceControlData = projectControlPoint(sourceControl, source, target);
 	const targetControlData = projectControlPoint(targetControl, source, target);
+	const middleControlDistance = straightThroughVertexControlDistance(sourceInfo, targetInfo, source, target);
+
+	if (middleControlDistance !== null) {
+		return {
+			distances: `${sourceControlData.distance} ${middleControlDistance} ${targetControlData.distance}`,
+			weights: `${sourceControlData.weight} 0.5 ${targetControlData.weight}`
+		};
+	}
 
 	return {
 		distances: `${sourceControlData.distance} ${targetControlData.distance}`,
@@ -408,9 +421,41 @@ export function computeArmTangentBezierControls(
 	};
 }
 
+function straightThroughVertexControlDistance(
+	sourceInfo: { anchor: { x: number; y: number }; vertex: { x: number; y: number } },
+	targetInfo: { anchor: { x: number; y: number }; vertex: { x: number; y: number } },
+	source: { x: number; y: number },
+	target: { x: number; y: number }
+): number | null {
+	const sameVertex = distance(sourceInfo.vertex, targetInfo.vertex) < 0.5;
+	if (!sameVertex) return null;
+
+	const sourceDirection = normalize({
+		x: sourceInfo.anchor.x - sourceInfo.vertex.x,
+		y: sourceInfo.anchor.y - sourceInfo.vertex.y
+	});
+	const targetDirection = normalize({
+		x: targetInfo.anchor.x - targetInfo.vertex.x,
+		y: targetInfo.anchor.y - targetInfo.vertex.y
+	});
+	const oppositeDirections = sourceDirection.x * targetDirection.x + sourceDirection.y * targetDirection.y < -0.98;
+	if (!oppositeDirections) return null;
+
+	const vertexProjection = projectControlPoint(sourceInfo.vertex, source, target);
+	const vertexBetweenAnchors = vertexProjection.weight > 0.05 && vertexProjection.weight < 0.95;
+	const vertexOnChord = Math.abs(vertexProjection.distance) < 0.5;
+	if (!vertexBetweenAnchors || !vertexOnChord) return null;
+
+	return BEZIER_CONTROL_LENGTH;
+}
+
 function normalize(vector: { x: number; y: number }): { x: number; y: number } {
 	const length = Math.hypot(vector.x, vector.y);
 	return length === 0 ? { x: 0, y: 0 } : { x: vector.x / length, y: vector.y / length };
+}
+
+function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
+	return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function projectControlPoint(

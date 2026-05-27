@@ -125,6 +125,7 @@ Resolved problems:
   - Anchor nodes are visually hidden by default; half-edge labels can still be displayed without drawing anchor circles.
   - Dragging any vertex, anchor, or orbifold endpoint now translates the associated star-shaped subgraph as a rigid unit instead of changing arm lengths.
   - Generated ordinary connecting edges now store per-edge Bezier control values derived from explicit endpoint tangent controls in the half-edge arm directions, using `BEZIER_CONTROL_LENGTH`.
+  - Straight-through self-edges whose two half-edge arms lie in opposite directions through the same vertex now receive an additional middle Bezier control so the connecting arc remains visible.
   - `CycleRow` cyclic-order label/input layout was repaired so the vertex label and cycle input stay on one line.
   - Numerical field labels no longer force uppercase, preserving mathematical notation such as `σ₀`.
 - Cyclic ordering arrows now render as circular arcs at radius `ARM_LENGTH` from the vertex centre. For valency-one vertices, the loop is approximated by four quarter-arc segments around the vertex.
@@ -135,47 +136,63 @@ Problems that do not require immediate resolution:
 
 ## Stage 2: Mutation
 
-Status: initial implementation
+Status: complete for Stage 2
 
 Implemented:
 
 - `src/lib/math/kaur.ts`
     - Fan decomposition for selected half-edge sets.
     - Edge-orbit selection helper, including orbifold fixed-edge handling.
-    - Left and right irreducible mutation on the `sigma0` successor map.
-    - Stable reconstruction of `sigma0` cycles after mutation.
+    - Left and right irreducible mutation using the temporary primed-edge insertion model.
+    - Preserves the outer `sigma0` array order so vertex slots are not reassigned after mutation.
+    - Keeps cycle display stable by rotating changed cycles to a surviving original start where possible.
 - `MutationControls.svelte`
     - Left and right mutation buttons become available once a graph exists.
     - Button state switches the app into edge-selection mode.
 - `DisplayPanel.svelte`
     - Clicking a rendered logical edge while in mutation-selection mode mutates that edge.
     - Mutation uses the Stage 2 requestAnimationFrame gradient animation flow before applying the graph update.
-    - The graph is rebuilt from the mutated `BrauerGraph`.
-    - Current vertex positions are snapshotted before the graph-store update and preserved by vertex index across the rebuild.
+    - Mutation updates the existing Cytoscape canvas imperatively instead of relying on a reactive redraw from `graphState.graph`.
+    - Central vertex nodes `v-{i}` and compound parents `s-{i}` are kept by vertex slot; mutation rebuilds or rebinds surrounding anchors, arms, ordering arrows, and connecting edges.
+    - Moved selected half-edge arms are inserted into the current angular sector determined by the primed-edge insertion, rather than redistributing every arm evenly around the vertex.
+    - Mathematical graph state is published after the canvas update, so panels observe the confirmed result without driving the canvas redraw.
     - New/rebuilt ordinary connecting edges are initialised with Arm-Tangent Bezier Construction.
+- `CanvasAccordion.svelte`
+    - Restored Canvas Edit buttons for `Adjust emanating angle`, `Rotate vertex`, and `Undo` to match `04-ui.md` and `06-canvas-editing.md`.
 - `NumericalAccordion.svelte`
     - While Canvas mode owns the rendered graph, the numerical edit fields sync from the current `BrauerGraph`, so post-mutation cyclic orderings are visible when returning to Numerical edit.
 - `src/lib/graph/animate.ts`
     - Canvas-safe gradient edge animation primitive using Cytoscape `line-fill: linear-gradient`.
     - Phase 1 selected-edge spread, Phase 2 inward arm flow, and Phase 3 neighbouring-edge fan flow for left/right irreducible mutation.
-    - Involved full edges are thickened before colour-flow animation starts: selected edge plus next endpoint-neighbour edge(s) for left mutation or previous endpoint-neighbour edge(s) for right mutation.
+    - Uses three flow colours: selected edge, neighbour side A, and neighbour side B.
+    - Initially thickens involved edges without leaving neighbour colour fills; involved edges blink twice in the normal edge colour before the flow starts.
+    - Temporarily colours endpoint vertex nodes of the selected full edge after the selected-edge flow completes.
+    - Temporarily colours the vertex nodes at the other endpoints of the neighbouring full edges after neighbouring flow completes.
+    - Vertex colouring preserves multiplicity rendering by colouring only vertex borders, so hollow vertices stay hollow and filled vertices stay filled.
+    - If the two neighbouring flows enter the same full edge, the flow stops in that shared edge instead of continuing through the opposite arm.
+    - Orbifold neighbouring flow pulses the orbifold cross and uses a distinct selected-edge colour for the backward wrap-around pass.
+    - Neighbouring-edge flows run simultaneously with one colour per endpoint side.
+    - Neighbouring full-edge colours are kept through the post-animation pause and immediately carried onto the updated graph, then cleared after the post-update pause.
+    - Involved full edges are thickened before colour-flow animation starts: selected edge plus previous endpoint-neighbour edge(s) for left mutation or next endpoint-neighbour edge(s) for right mutation.
     - Animation timing is slowed down, with a pause after involved-edge thickening and another pause after the selected full edge reaches the highlight colour.
-    - Temporary animation styles are restored before the graph is rebuilt.
+    - Temporary animation styles are restored before the imperative canvas mutation update runs.
 - `DisplayPanel.svelte`
     - Mutation edge-selection mode shows a pointer cursor while hovering selectable edge components.
 
 Verified:
 
 - `bun run check` passes with 0 errors and 0 warnings.
-- `bun run build` passes and writes static output to `docs/`.
-- Mutation validity smoke test passed across every bundled example, both left and right mutation, and every edge. Each result passed `validateBrauerGraph`.
+- Mutation validity smoke test passed across every bundled example, both left and right mutation, and every edge. No mutation changed the number of vertex cycles.
+- Left then right returns the original graph up to cyclic rotation across bundled examples.
+- Regression checks:
+    - `Pants (3 edges)`, left mutate edge `2`: `[[1,2,3],[-1,-3,-2]]` becomes `[[1,-2,3],[-1,-3,2]]`.
+    - `Line (4 edges)`, left mutate edge `2`: vertex slots remain `v3 = [-3]` and `v4 = [3,-4,2]`; the cycles are not sorted into different vertex indices.
 
-Known problems / gaps:
+Non-blocking follow-up:
 
-1. Vertex positions are preserved by index. This is adequate for the current examples, but mutations that split/merge cycles may need a more mathematical placement rule for newly created vertices.
-2. Multiplicity transport currently preserves multiplicity by resulting cycle index and defaults newly created cycles to multiplicity `1`. This needs mathematical confirmation for split/merge mutation cases.
-3. Since Canvas Edit anchor-angle and edge-handle editing are not implemented yet, mutation rebuilds cannot yet preserve future user-adjusted anchor angles or edge handles. The relevant preservation requirement is recorded in `02-mutation.md`.
-4. The Stage 2 animation is implemented, but it still needs browser visual inspection against `05-animation.md` for exact directionality on complicated orbifold cases.
+1. The Canvas Edit buttons for `Adjust emanating angle`, `Rotate vertex`, and `Undo` are present but still disabled; their interaction implementations belong to Canvas Edit work, not Stage 2 mutation.
+2. Additional browser visual QA on complicated orbifold cases is still useful, but the Stage 2 animation behaviour is implemented and has been visually iterated in the app.
+3. The current imperative canvas mutation rebuilds the non-vertex Cytoscape elements broadly. Future Canvas Edit work should narrow this to the changed stars and affected connecting edges while preserving user-edited edge controls.
 
 ## Spec-Integrated Pending Work
 
@@ -196,6 +213,26 @@ These items from `spec/things-to-improve.md` have been folded into the canonical
     - Adjust emanating angle rotates one arm within its current cyclic sector and reapplies Arm-Tangent Bezier Construction to incident ordinary edges.
     - Rotate vertex cyclically permutes arm positions around a selected vertex and refreshes incident ordinary-edge Bezier controls.
     - Reconnect arc must initialise every new ordinary connecting edge with Arm-Tangent Bezier Construction.
+
+## Stage 3: Canvas Edit
+
+Status: started
+
+Implemented:
+
+- `Adjust emanating angle`
+    - The Canvas Edit button is enabled and enters/exits a dedicated `adjust-emanating-angle` mode.
+    - The canvas highlights all half-edge arms and prompts the user to click an arm.
+    - Clicking a half-edge arm selects that arm; pointer movement rotates only the corresponding anchor around its vertex while preserving the arm length.
+    - Movement is clamped to the current sector between neighbouring anchors in the vertex cycle, using current canvas positions rather than regenerated equal spacing.
+    - Incident ordinary connecting edges are refreshed with Arm-Tangent Bezier Construction while the anchor moves.
+    - If the moved arm is an orbifold half-edge, its orbifold endpoint is moved along the same ray so the orbifold segment remains attached.
+    - Outside this dedicated mode, dragging vertex/anchor/orbifold nodes still translates the whole star-shaped subgraph rigidly.
+
+Pending:
+
+- Undo snapshot integration for `Adjust emanating angle`.
+- Remaining Canvas Edit tools: Undo, Rotate vertex, Add vertex, Remove vertex, Remove arc/half-edge, Reconnect arc, Add orbifold edge, Edit curve, Modify multiplicity.
 
 ## Readiness for Next Stage
 

@@ -31,6 +31,8 @@
 	--arrow-color: rgba(42, 92, 170, 0.5);
 	--orbifold-color: #cc4400;
 	--highlight-color: #1ca3c4;
+	--mutation-neighbor-a-color: #d97706;
+	--mutation-neighbor-b-color: #16a34a;
 }
 
 :root[data-theme='dark'] {
@@ -57,6 +59,8 @@
 	--arrow-color: rgba(122, 174, 248, 0.5);
 	--orbifold-color: #ff8855;
 	--highlight-color: #4dd4f0;
+	--mutation-neighbor-a-color: #ffb020;
+	--mutation-neighbor-b-color: #22c55e;
 }
 
 body {

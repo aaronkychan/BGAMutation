@@ -17,6 +17,19 @@ This file records cross-cutting decisions extracted from the full specification.
 - Use numeric vertex indices in math helpers. Convert to Cytoscape IDs only in graph/rendering code.
 - `computeHalfedgeSourcePairs(graph)` returns one tuple per positive edge label. For orbifold edge `i`, return `[a, a]`, where `a` is the source vertex of `+i`.
 
+## Canvas State Isolation
+
+- The Cytoscape canvas is not a reactive rendering of `graphState.graph`.
+- `graphState.graph` stores confirmed mathematical graph data for controls, validation, save/load, and topology display.
+- The canvas owns live Cytoscape state: vertex positions, pan/zoom, anchor positions, temporary animation styles, and edge-control data.
+- Graph-changing UI flows must use explicit canvas commands:
+  - draw a validated initial graph,
+  - clear the canvas,
+  - load a saved Cytoscape snapshot,
+  - apply a confirmed mutation to the existing Cytoscape instance.
+- After an imperative canvas update succeeds, publish the new `BrauerGraph` to mathematical state. The publication must not trigger a Cytoscape redraw.
+- Full initial layout may run only for explicit draw-from-input/redraw operations, not as a side effect of mutation or a graph-state assignment.
+
 ## Rendering IDs
 
 - All Cytoscape IDs are constructed in `src/lib/graph/ids.ts`; no other file should concatenate IDs manually.

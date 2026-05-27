@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ChevronDown } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import { downloadJson, readJsonFile } from '$lib/io/fileio';
 	import { createSavedFile } from '$lib/io/serialize';
@@ -22,9 +23,10 @@
 	let savedFiles = $state<SavedFile[]>([]);
 	let selectedSavedAt = $state('');
 	let showSaveModal = $state(false);
-	let fileInput: HTMLInputElement;
+	let fileInput = $state<HTMLInputElement>();
 	let statusMessage = $state('');
 	let errorMessage = $state('');
+	let open = $state(true);
 
 	let selectedSavedFile = $derived(savedFiles.find((savedFile) => savedFile.savedAt === selectedSavedAt) ?? null);
 	let canSave = $derived(Boolean(graph && graphState.getCanvasSnapshot));
@@ -105,7 +107,7 @@
 			errorMessage = error instanceof Error ? error.message : 'Could not import this file.';
 			statusMessage = '';
 		} finally {
-			fileInput.value = '';
+			if (fileInput) fileInput.value = '';
 		}
 	}
 
@@ -138,35 +140,40 @@
 </script>
 
 <section class="save-load">
-	<h2>Save / Load</h2>
-	{#if savedFiles.length}
-		<label>
-			<span>Saved graphs</span>
-			<select bind:value={selectedSavedAt}>
-				{#each savedFiles as savedFile}
-					<option value={savedFile.savedAt}>{savedFile.label}</option>
-				{/each}
-			</select>
-		</label>
-	{/if}
-	<div class="button-grid">
-		<button class="primary" type="button" disabled={!canSave} onclick={() => (showSaveModal = true)}>Save current</button>
-		<button type="button" disabled={!canLoad} onclick={loadSelected}>Load selected</button>
-		<button type="button" disabled={!canExport} onclick={exportAll}>Export all</button>
-		<button type="button" onclick={() => fileInput.click()}>Import</button>
-	</div>
-	<input
-		bind:this={fileInput}
-		class="file-input"
-		type="file"
-		accept="application/json,.json"
-		onchange={(event) => importFiles(event.currentTarget.files)}
-	/>
-	{#if statusMessage}
-		<p class="status">{statusMessage}</p>
-	{/if}
-	{#if errorMessage}
-		<p class="error">{errorMessage}</p>
+	<button class="section-trigger" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+		<span>Save / Load</span>
+		<ChevronDown class={open ? 'open' : ''} size={18} />
+	</button>
+	{#if open}
+		{#if savedFiles.length}
+			<label>
+				<span>Saved graphs</span>
+				<select bind:value={selectedSavedAt}>
+					{#each savedFiles as savedFile}
+						<option value={savedFile.savedAt}>{savedFile.label}</option>
+					{/each}
+				</select>
+			</label>
+		{/if}
+		<div class="button-grid">
+			<button class="primary" type="button" disabled={!canSave} onclick={() => (showSaveModal = true)}>Save current</button>
+			<button type="button" disabled={!canLoad} onclick={loadSelected}>Load selected</button>
+			<button type="button" disabled={!canExport} onclick={exportAll}>Export all</button>
+			<button type="button" onclick={() => fileInput?.click()}>Import</button>
+		</div>
+		<input
+			bind:this={fileInput}
+			class="file-input"
+			type="file"
+			accept="application/json,.json"
+			onchange={(event) => importFiles(event.currentTarget.files)}
+		/>
+		{#if statusMessage}
+			<p class="status">{statusMessage}</p>
+		{/if}
+		{#if errorMessage}
+			<p class="error">{errorMessage}</p>
+		{/if}
 	{/if}
 </section>
 
@@ -186,10 +193,22 @@
 		padding: 16px 0 4px;
 	}
 
-	h2 {
-		margin: 0 0 10px;
+	.section-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		border: 0;
+		background: transparent;
 		color: var(--section-title);
+		padding: 0 0 10px;
 		font-size: 15px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	:global(.open) {
+		transform: rotate(180deg);
 	}
 
 	label {

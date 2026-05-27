@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { ChevronDown } from 'lucide-svelte';
 	import { graphState } from '$lib/state/graph.svelte';
 
+	let open = $state(true);
 	let canMutate = $derived(Boolean(graphState.graph));
 
 	function selectMutation(direction: 'left' | 'right') {
@@ -9,25 +11,30 @@
 </script>
 
 <section class="mutation-controls">
-	<h2>Mutation</h2>
-	<div class="button-grid">
-		<button
-			type="button"
-			class:active={graphState.mode === 'select-left-mutation-edge'}
-			disabled={!canMutate}
-			onclick={() => selectMutation('left')}
-		>
-			Left mutation
-		</button>
-		<button
-			type="button"
-			class:active={graphState.mode === 'select-right-mutation-edge'}
-			disabled={!canMutate}
-			onclick={() => selectMutation('right')}
-		>
-			Right mutation
-		</button>
-	</div>
+	<button class="section-trigger" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+		<span>Mutation</span>
+		<ChevronDown class={open ? 'open' : ''} size={18} />
+	</button>
+	{#if open}
+		<div class="button-grid">
+			<button
+				type="button"
+				class:active={graphState.mode === 'select-left-mutation-edge'}
+				disabled={!canMutate}
+				onclick={() => selectMutation('left')}
+			>
+				Left mutation
+			</button>
+			<button
+				type="button"
+				class:active={graphState.mode === 'select-right-mutation-edge'}
+				disabled={!canMutate}
+				onclick={() => selectMutation('right')}
+			>
+				Right mutation
+			</button>
+		</div>
+	{/if}
 </section>
 
 <style>
@@ -36,10 +43,22 @@
 		padding: 16px 0;
 	}
 
-	h2 {
-		margin: 0 0 10px;
+	.section-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		border: 0;
+		background: transparent;
 		color: var(--section-title);
+		padding: 0 0 10px;
 		font-size: 15px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	:global(.open) {
+		transform: rotate(180deg);
 	}
 
 	.button-grid {

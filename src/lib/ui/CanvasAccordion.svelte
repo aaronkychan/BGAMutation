@@ -1,22 +1,29 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte';
 
-	const editActions = [
-		'Add vertex',
-		'(Re)connect arc',
-		'Add orbifold edge',
-		'Edit curve',
-		'Remove vertex',
-		'Remove arc/half-edge',
-		'Modify multiplicity'
+	const editActions: Array<{ label: string; action: string; enabled: boolean }> = [
+		{ label: 'Add vertex', action: 'add-vertex', enabled: false },
+		{ label: '(Re)connect arc', action: 'reconnect-arc', enabled: false },
+		{ label: 'Add orbifold edge', action: 'add-orbifold-edge', enabled: false },
+		{ label: 'Edit curve', action: 'edit-curve', enabled: false },
+		{ label: 'Adjust emanating angle', action: 'adjust-emanating-angle', enabled: true },
+		{ label: 'Rotate vertex', action: 'rotate-vertex', enabled: false },
+		{ label: 'Undo', action: 'undo', enabled: false },
+		{ label: 'Remove vertex', action: 'remove-vertex', enabled: false },
+		{ label: 'Remove arc/half-edge', action: 'remove-edge', enabled: false },
+		{ label: 'Modify multiplicity', action: 'modify-multiplicity', enabled: false }
 	];
 
 	let {
 		open,
-		onToggle
+		activeAction = '',
+		onToggle,
+		onAction
 	}: {
 		open: boolean;
+		activeAction?: string;
 		onToggle: () => void;
+		onAction?: (action: string) => void;
 	} = $props();
 </script>
 
@@ -29,8 +36,14 @@
 	{#if open}
 		<div class="button-list" aria-label="Canvas editing tools">
 			{#each editActions as action}
-				<button type="button" disabled title="Canvas editing is scheduled for a later stage">
-					{action}
+				<button
+					type="button"
+					class:active={activeAction === action.action}
+					disabled={!action.enabled}
+					title={action.enabled ? action.label : 'Canvas editing is scheduled for a later stage'}
+					onclick={() => onAction?.(action.action)}
+				>
+					{action.label}
 				</button>
 			{/each}
 		</div>
@@ -78,5 +91,12 @@
 	button:disabled {
 		color: var(--text-disabled);
 		cursor: not-allowed;
+	}
+
+	button.active:not(:disabled) {
+		border-color: var(--accent);
+		background: var(--accent);
+		color: var(--accent-contrast);
+		font-weight: 700;
 	}
 </style>

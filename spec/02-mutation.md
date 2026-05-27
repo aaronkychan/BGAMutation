@@ -10,6 +10,7 @@ Stage 2 mutation depends on the current rendering/editing state model:
 - During any mutation-driven star movement or rebuild, ordinary connecting edges incident to moved/rebuilt anchors must preserve the visual tangent invariant: after endpoint positions change, recompute Arm-Tangent Bezier Construction from the current vertex and anchor positions unless a user-edited curve is being explicitly restored.
 - When mutation creates, retargets, or rebuilds an ordinary connecting edge without a saved/user-edited control to preserve, initialise that edge with Arm-Tangent Bezier Construction from `03-rendering.md`.
 - Mutation updates must not re-run the full initial layout unless the user explicitly requests a redraw from numerical input.
+- Mutation must not be implemented as a Svelte reactive redraw from `graphState.graph`. The Cytoscape canvas is updated by an explicit imperative mutation command; only after that succeeds should the confirmed `BrauerGraph` be published to app state.
 
 ## Mutation Algorithm
 
@@ -185,6 +186,34 @@ The fans are detected from $\widetilde{\mathcal{X}} = X$:
 
 For each fan, apply left mutation Rules 1–3 as above.
 
+**Implementation note for irreducible mutation**: do not implement the two one-element fan
+updates by writing independent `successor.set(source, target)` assignments into one shared
+successor map. For an ordinary selected edge $\{h,-h\}$, the two fan updates can target
+each other's old selected half-edges and overwrite splice endpoints, splitting a cycle and
+incorrectly increasing the number of vertices.
+
+The implemented Stage 2 procedure should instead use a temporary primed-edge model:
+
+1. For each non-full fan, insert a temporary copy of the fan at the destination endpoint.
+   For left mutation, insert it immediately before $\sigma_1(e_i)$ with
+   $e_i=\sigma_0^{-1}(h_{i,1})$. For right mutation, insert it immediately after
+   $\sigma_1(e_i)$ with $e_i=\sigma_0(h_{i,k_i+1})$.
+2. After all insertions, remove the old selected fan half-edges.
+3. Replace each temporary primed symbol by its original half-edge label.
+4. Preserve the original `sigma0` array order. Cycles may be rotated for display, but
+   vertex slots must not be sorted or reassigned.
+
+The same primed-edge model controls the post-mutation canvas geometry. Inserted primed
+half-edge arms are placed in the angular sector where the temporary symbol is inserted,
+using the current live anchor positions around that vertex. After insertion, remove the
+old non-primed selected half-edge arms and unprime the temporary symbols. Do not spread all
+arms evenly around the vertex after mutation; equal spacing is only the default geometry
+for drawing a graph from numerical input or creating a fresh star with no saved geometry.
+
+Example: for `[[1,2,3],[-1,-3,-2]]`, left mutation at edge `2` temporarily inserts
+`2'` between `-2` and `-1`, and `-2'` between `2` and `3`. Removing old `2,-2` and
+unpriming gives `[[1,-2,3],[-1,-3,2]]`.
+
 **Verification of Rule 1 (valency-1 vertex)**: if vertex $v_i$ has valency 1 with
 cycle $[x]$, then $\sigma_0(x) = x$ and $e_i = \sigma_0^{-1}(x) = x \in \widetilde{\mathcal{X}}$.
 Rule 1 applies: $\sigma_0'(x) = \sigma_0(x) = x$. The vertex $v_i$ survives unchanged
@@ -194,12 +223,14 @@ as a degree-1 vertex attached to $x$. No special-casing is needed.
 
 ## Graph Update After Animation
 
-After all three phases complete, pause for `ANIMATION_POST_MS` (default 500 ms), then:
+After all three phases complete, pause for `ANIMATION_POST_MS` (default 1000 ms), then:
 
 ### Step 1 — Update $\sigma_0$ in graph store
 
-Apply left/right mutation Rules 1–3 to the in-memory `sigma0` array. The update touches only
-the half-edges and $e_i$ values identified during fan computation. No other entries change.
+Compute the next `sigma0` with the Kaur mutation rules, using the temporary primed-edge
+implementation note above for irreducible mutation. Preserve the order of the outer
+`sigma0` array: vertex `v_i` remains stored at index `i`. Do not sort cycles by their
+minimum half-edge label after mutation.
 
 ### Step 2 — Identify changed vertices
 
@@ -210,16 +241,31 @@ old cycle:
 - Any half-edge in $\widetilde{\mathcal{X}}$ that moved to a different cycle.
 - Any $e_i$ whose successor changed.
 
-### Step 3 — Rebuild star-shaped subgraphs for changed vertices
+### Step 3 — Imperatively update the Cytoscape canvas
 
-For each vertex $v \in V_\Delta$:
+Mutation is a canvas command, not a reactive redraw from `graphState.graph`.
+
+The required order is:
+
+1. Run animation from the current live Cytoscape canvas.
+2. Compute the next `BrauerGraph`.
+3. Update the existing Cytoscape instance imperatively, keeping vertex nodes `v-{i}` and
+   their current positions fixed. Do not call full initial layout and do not call
+   `cy.center()`.
+4. Publish the confirmed `BrauerGraph` to app state for panels/save/load. This publication
+   must not cause the canvas to redraw.
+
+For each changed vertex $v \in V_\Delta$:
 
 1. **Remove** from Cytoscape all existing arm edges (`he-*`) and anchor nodes (`u-*`,
    `orb-x*`) belonging to $v$'s old star subgraph $S(v)$.
 2. **Recompute** anchor positions using the current star geometry state, keeping $v$'s
-   position fixed. If the user has adjusted emanating angles around this vertex, preserve
-   those angular positions as far as the new cyclic ordering allows; otherwise fall back
-   to the generated star geometry formula with the current CW/CCW setting.
+   position fixed. Unchanged half-edge anchors keep their current positions. Inserted
+   primed/moved half-edge anchors are placed inside the angular sector bounded by their
+   current predecessor and successor anchors in the new cyclic order. If several inserted
+   arms occupy the same sector, distribute those inserted arms within that sector only.
+   Fall back to generated equal spacing only when the sector cannot be recovered from live
+   canvas state.
 3. **Add** new arm edges and anchor/orbifold-end nodes to Cytoscape with the updated
    positions and IDs.
 4. **Update** connecting edges (`ce-*`, `ce-orb-*`) whose endpoints have moved:
@@ -229,14 +275,16 @@ For each vertex $v \in V_\Delta$:
    saved/user-edited control data, initialise it with Arm-Tangent Bezier Construction
    from `03-rendering.md`.
 
-> **Note**: The vertex node `v-{i}` itself does not move. Only the arms and anchors
-> are rebuilt. The compound parent `s-{i}` is updated to include the new anchor nodes.
+> **Note**: The vertex node `v-{i}` itself does not move and is not recreated. Only the
+> arms, anchors, ordering arrows, and affected connecting edges are rebuilt or rebound.
+> The compound parent `s-{i}` remains the same parent for that vertex slot.
 
 ### Step 4 — Update Panel 1 and Info Box
 
-Reflect the new `sigma0` in the `NumericalAccordion` cycle inputs (read-only display
-while canvas accordion is open). Recompute and display updated topology metrics in
-`InfoBox` (v, e, f, g, orbifold edge count).
+After the canvas update succeeds and the new `BrauerGraph` is published, reflect the new
+`sigma0` in the `NumericalAccordion` cycle inputs (read-only display while canvas
+accordion is open). Recompute and display updated topology metrics in `InfoBox` (v, e, f,
+g, orbifold edge count).
 
 ---
 
