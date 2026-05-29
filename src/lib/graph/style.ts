@@ -98,6 +98,33 @@ export function createStylesheet(): cytoscape.StylesheetCSS[] {
             },
         },
         {
+            selector: ".curve-control-node",
+            css: {
+                width: 10,
+                height: 10,
+                shape: "ellipse",
+                "background-color": cssVar("--accent"),
+                "border-width": 2,
+                "border-color": cssVar("--bg-primary"),
+                "text-outline-width": 0,
+                label: "",
+            },
+        },
+        {
+            selector: ".curve-control-guide",
+            css: {
+                width: 1.5,
+                "line-color": cssVar("--accent"),
+                "line-style": "dashed",
+                "line-opacity": 0.65,
+                "curve-style": "straight",
+                "text-outline-width": 0,
+                label: "",
+                events: "no",
+                "z-index": 1,
+            },
+        },
+        {
             selector: ".orbifold-node",
             css: {
                 width: ORBIFOLD_END_RADIUS * 2,

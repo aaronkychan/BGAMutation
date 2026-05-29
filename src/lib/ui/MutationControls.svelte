@@ -1,13 +1,24 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte';
+	import { validateBrauerGraph } from '$lib/math/ribbon';
 	import { graphState } from '$lib/state/graph.svelte';
 
 	let open = $state(true);
-	let canMutate = $derived(Boolean(graphState.graph));
+	let canMutate = $derived(Boolean(graphState.graph && validateBrauerGraph(graphState.graph).length === 0));
 
 	function selectMutation(direction: 'left' | 'right') {
+		if (!canMutate) return;
 		graphState.mode = direction === 'left' ? 'select-left-mutation-edge' : 'select-right-mutation-edge';
 	}
+
+	$effect(() => {
+		if (
+			!canMutate &&
+			(graphState.mode === 'select-left-mutation-edge' || graphState.mode === 'select-right-mutation-edge')
+		) {
+			graphState.mode = 'idle';
+		}
+	});
 </script>
 
 <section class="mutation-controls">

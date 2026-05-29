@@ -20,7 +20,6 @@
 		disabled = false,
 		onToggle,
 		onDraw,
-		onRenderOptionsChange,
 		onClear,
 		renderOptions,
 		errors = []
@@ -30,7 +29,6 @@
 		disabled?: boolean;
 		onToggle: () => void;
 		onDraw: (graph: BrauerGraph, options: RenderOptions) => void;
-		onRenderOptionsChange: (options: RenderOptions) => void;
 		onClear: () => void;
 		renderOptions: RenderOptions;
 		errors?: { field: string; message: string }[];
@@ -197,14 +195,6 @@
 		};
 	}
 
-	function updateDisplayToggle(toggle: keyof Pick<RenderOptions, 'showOrderArrows' | 'showHalfEdgeLabels' | 'showMultiplicityLabels' | 'showEdgeLabels'>, checked: boolean) {
-		if (toggle === 'showOrderArrows') showOrderArrows = checked;
-		if (toggle === 'showHalfEdgeLabels') showHalfEdgeLabels = checked;
-		if (toggle === 'showMultiplicityLabels') showMultiplicityLabels = checked;
-		if (toggle === 'showEdgeLabels') showEdgeLabels = checked;
-		onRenderOptionsChange(currentRenderOptions());
-	}
-
 	$effect(() => {
 		showOrderArrows = renderOptions.showOrderArrows;
 		showHalfEdgeLabels = renderOptions.showHalfEdgeLabels;
@@ -350,14 +340,6 @@
 					<Plus size={14} />
 					Add vertex
 				</button>
-			</div>
-
-			<div class="field-group">
-				<span class="label">Display toggles</span>
-				<label class="switch"><input type="checkbox" checked={showOrderArrows} disabled={disabled} onchange={(event) => updateDisplayToggle('showOrderArrows', event.currentTarget.checked)} /> Show cyclic ordering as arrows</label>
-				<label class="switch"><input type="checkbox" checked={showHalfEdgeLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showHalfEdgeLabels', event.currentTarget.checked)} /> Half-edge labels</label>
-				<label class="switch"><input type="checkbox" checked={showMultiplicityLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showMultiplicityLabels', event.currentTarget.checked)} /> Multiplicity labels</label>
-				<label class="switch"><input type="checkbox" checked={showEdgeLabels} disabled={disabled} onchange={(event) => updateDisplayToggle('showEdgeLabels', event.currentTarget.checked)} /> Edge labels</label>
 			</div>
 
 			<div class="field-group">
@@ -613,7 +595,6 @@
 		padding: 4px 0;
 	}
 
-	.switch,
 	.radio {
 		grid-template-columns: auto 1fr;
 		align-items: center;
@@ -632,7 +613,6 @@
 		width: auto;
 	}
 
-	.switch input,
 	.radio input {
 		width: 16px;
 		height: 16px;

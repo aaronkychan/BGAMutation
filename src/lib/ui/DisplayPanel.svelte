@@ -1,9 +1,13 @@
 <script lang="ts">
 	import cytoscape from 'cytoscape';
 	import { onDestroy, onMount } from 'svelte';
-	import { buildElements, buildOrderingArrowElements, computeArmTangentBezierControls } from '$lib/graph/elements';
+	import {
+		buildElements,
+		buildOrderingArrowElements,
+		computeArmTangentBezierControls
+	} from '$lib/graph/elements';
 	import { registerCytoscapeExtensions } from '$lib/graph/extensions';
-	import { anchorId, connectingEdgeId, orbifoldConnectingEdgeId, orbifoldEndId, vertexId } from '$lib/graph/ids';
+	import { anchorId, connectingEdgeId, orbifoldConnectingEdgeId, orbifoldEndId, starParentId, vertexId } from '$lib/graph/ids';
 	import { computeInitialVertexPositions } from '$lib/graph/positions';
 	import { createStylesheet } from '$lib/graph/style';
 	import type { RenderOptions } from '$lib/graph/types';
@@ -12,6 +16,7 @@
 	import { edgeOrbit, mutateGraph, type MutationDirection } from '$lib/math/kaur';
 	import { graphState } from '$lib/state/graph.svelte';
 	import type { BrauerGraph, NodePositions, SavedFile } from '$lib/math/types';
+	import Modal from './Modal.svelte';
 
 	export interface CanvasController {
 		drawGraph: (graph: BrauerGraph, options: RenderOptions) => void;
@@ -38,8 +43,28 @@
 	let mutating = false;
 	let adjustingHalfEdge: number | null = null;
 	let adjustModeWasActive = false;
-	let renderedGraph: BrauerGraph | null = null;
+	let adjustArcCurvatureWasActive = false;
+	let selectedArcId: string | null = null;
+	let rotatingVertexIndex: number | null = null;
+	let rotationStartAngle = 0;
+	let rotationStartPositions = new Map<string, { x: number; y: number }>();
+	let rotateModeWasActive = false;
+	let modifyMultiplicityWasActive = false;
+	let addVertexWasActive = false;
+	let addHalfEdgeWasActive = false;
+	let addOrbifoldWasActive = false;
+	let reconnectArcWasActive = false;
+	let removeVertexWasActive = false;
+	let removeArcWasActive = false;
+	let removeHalfEdgeWasActive = false;
+	let multiplicityModalVertexIndex = $state<number | null>(null);
+	let addVertexPosition = $state<{ x: number; y: number } | null>(null);
+	let addHalfEdgeAfter = $state<number | null>(null);
+	let reconnectSourceHalfEdge = $state<number | null>(null);
+	let renderedGraph = $state<BrauerGraph | null>(null);
 	let renderedOptions: RenderOptions | null = null;
+	const MIN_ARM_RADIUS = 14;
+	const FAR_ENOUGH_PX = 48;
 
 	function renderGraph(nextGraph: BrauerGraph | null, renderOptions: RenderOptions = options) {
 		if (!cy || !container) return;
@@ -50,6 +75,7 @@
 			canvasHasGraph = false;
 			renderedGraph = null;
 			renderedOptions = null;
+			graphState.armLength = null;
 			return;
 		}
 
@@ -66,11 +92,12 @@
 		canvasHasGraph = true;
 		renderedGraph = nextGraph;
 		renderedOptions = { ...renderOptions };
+		publishCurrentArmLength();
 	}
 
 	function applyStylesheet() {
 		if (!cy) return;
-		cy.style(createStylesheet());
+		cy.style(createStylesheet()).update();
 	}
 
 	function canvasSnapshot() {
@@ -109,6 +136,20 @@
 		restoreVertexPositions(positions);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
+		publishCurrentArmLength();
+	}
+
+	function rebuildGraphWithPositions(nextGraph: BrauerGraph, positions: NodePositions) {
+		if (!cy) return;
+
+		cy.elements().remove();
+		cy.add(buildElements(nextGraph, positions, options));
+		cy.layout({ name: 'preset', fit: false }).run();
+		restoreVertexPositions(positions);
+		renderedGraph = nextGraph;
+		renderedOptions = { ...options };
+		canvasHasGraph = nextGraph.sigma0.length > 0;
+		publishCurrentArmLength();
 	}
 
 	function updateGraphInPlace(nextGraph: BrauerGraph, selected: Set<number>) {
@@ -123,16 +164,11 @@
 
 		nextGraph.sigma0.forEach((_, vertexIndex) => {
 			const vertex = cy?.getElementById(vertexId(vertexIndex));
-			const multiplicity = nextGraph.multiplicity[vertexIndex] ?? 1;
-			vertex?.data({
-				vertexIndex,
-				multiplicity,
-				multiplicityLabel: options.showMultiplicityLabels ? String(multiplicity) : ''
-			});
-			vertex?.classes(`v-node ${multiplicity > 1 ? 'filled' : 'hollow'}`);
+			vertex?.data('vertexIndex', vertexIndex);
+			updateVertexMultiplicityDisplay(vertexIndex, nextGraph.multiplicity[vertexIndex] ?? 1);
 		});
 
-		cy.elements().not('.v-node, .star-parent').remove();
+		cy.elements().not('.v-node').remove();
 		cy.add(
 			buildElements(nextGraph, positions, options).filter(
 				(element) =>
@@ -140,7 +176,7 @@
 						element.group === 'nodes' &&
 						String(element.classes)
 							.split(/\s+/)
-							.some((className) => className === 'v-node' || className === 'star-parent')
+							.some((className) => className === 'v-node')
 					)
 			)
 		);
@@ -148,6 +184,7 @@
 		restoreVertexPositions(positions);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
+		publishCurrentArmLength();
 	}
 
 	function mutationNodePositions(nextGraph: BrauerGraph, selected: Set<number>): NodePositions {
@@ -321,11 +358,7 @@
 		const orbifoldEdges = new Set(renderedGraph.orbifoldEdges ?? []);
 
 		renderedGraph.sigma0.forEach((cycle, vertexIndex) => {
-			const multiplicity = renderedGraph?.multiplicity[vertexIndex] ?? 1;
-			cy?.getElementById(vertexId(vertexIndex)).data(
-				'multiplicityLabel',
-				options.showMultiplicityLabels ? String(multiplicity) : ''
-			);
+			updateVertexMultiplicityDisplay(vertexIndex, renderedGraph?.multiplicity[vertexIndex] ?? 1);
 
 			cycle.forEach((halfEdge) => {
 				const anchor = cy?.getElementById(anchorId(halfEdge));
@@ -356,6 +389,31 @@
 		renderedOptions = { ...options };
 	}
 
+	function shouldShowMultiplicityLabels() {
+		return options.showMultiplicityLabels || graphState.mode === 'modify-multiplicity';
+	}
+
+	function updateVertexMultiplicityDisplay(vertexIndex: number, multiplicity: number) {
+		if (!cy) return;
+
+		const vertex = cy.getElementById(vertexId(vertexIndex));
+		if (!vertex.nonempty()) return;
+
+		vertex.data({
+			multiplicity,
+			multiplicityLabel: shouldShowMultiplicityLabels() ? String(multiplicity) : ''
+		});
+		vertex.classes(`v-node ${multiplicity > 1 ? 'filled' : 'hollow'}`);
+	}
+
+	function refreshMultiplicityLabels() {
+		if (!cy || !renderedGraph) return;
+
+		renderedGraph.multiplicity.forEach((multiplicity, vertexIndex) => {
+			updateVertexMultiplicityDisplay(vertexIndex, multiplicity ?? 1);
+		});
+	}
+
 	function canApplyRenderOptionsInPlace() {
 		return Boolean(
 			cy &&
@@ -367,25 +425,25 @@
 	}
 
 	function translateStar(target: cytoscape.NodeSingular, dx: number, dy: number) {
-		const parent = target.data('parent');
-		if (!parent) return;
+		const starId = target.data('starId');
+		if (!starId) return;
 
 		cy
-			?.nodes(`[parent = "${parent}"]`)
+			?.nodes(`[starId = "${starId}"]`)
 			.not(target)
 			.positions((node) => ({
 				x: node.position('x') + dx,
 				y: node.position('y') + dy
 			}));
 
-		updateIncidentBezierControls(parent);
+		updateIncidentBezierControls(starId);
 	}
 
-	function updateIncidentBezierControls(parentId: string) {
+	function updateIncidentBezierControls(starId: string) {
 		if (!cy || !renderedGraph) return;
 
 		const movedHalfEdges = cy
-			.nodes(`[parent = "${parentId}"].u-node`)
+			.nodes(`[starId = "${starId}"].u-node`)
 			.map((node) => Number(node.data('h')))
 			.filter((halfEdge) => Number.isInteger(halfEdge));
 
@@ -418,15 +476,36 @@
 		};
 	}
 
-	function beginAdjustEmanatingAngle(target: cytoscape.SingularElementReturnValue) {
-		if (!cy || !renderedGraph || !target.hasClass('he-edge')) return;
+	function beginAdjustEmanatingAngle(event: cytoscape.EventObject) {
+		if (!cy || !renderedGraph) return;
 
-		const halfEdge = Number(target.data('h'));
+		const halfEdge = halfEdgeForAdjustTarget(event.target, event.position);
 		if (!Number.isInteger(halfEdge)) return;
 
 		adjustingHalfEdge = halfEdge;
 		infoMessage = 'Move pointer to adjust the emanating angle. Click blank canvas to finish.';
 		highlightHalfEdgeArms(halfEdge);
+	}
+
+	function halfEdgeForAdjustTarget(target: cytoscape.SingularElementReturnValue, position: { x: number; y: number }): number {
+		if (!cy) return Number.NaN;
+		const core = cy;
+		if (target.hasClass('he-edge') || target.hasClass('u-node')) {
+			return Number(target.data('h'));
+		}
+
+		const edgeId = String(target.data('edgeId') ?? '');
+		const edgeNumber = Number.parseInt(edgeId.replace(/^p/, ''), 10);
+		if (!Number.isInteger(edgeNumber)) return Number.NaN;
+
+		const candidates = renderedGraph?.orbifoldEdges?.includes(edgeNumber) ? [edgeNumber] : [edgeNumber, -edgeNumber];
+		return candidates.reduce((closest, halfEdge) => {
+			const anchor = core.getElementById(anchorId(halfEdge));
+			if (!anchor.nonempty()) return closest;
+
+			const candidateDistance = distance(position, anchor.position());
+			return candidateDistance < closest.distance ? { halfEdge, distance: candidateDistance } : closest;
+		}, { halfEdge: Number.NaN, distance: Number.POSITIVE_INFINITY }).halfEdge;
 	}
 
 	function adjustSelectedAnchor(pointer: { x: number; y: number }) {
@@ -451,7 +530,189 @@
 
 		anchor.position(nextPosition);
 		updateOrbifoldEndForAnchor(adjustingHalfEdge, vertexPosition, nextPosition);
-		updateIncidentBezierControls(String(anchor.data('parent')));
+		updateIncidentBezierControls(String(anchor.data('starId')));
+	}
+
+	function beginAdjustArcCurvature(target: cytoscape.SingularElementReturnValue) {
+		if (!cy || !target.hasClass('ordinary-edge')) return;
+
+		clearArcCurvatureHandles();
+		selectedArcId = target.id();
+		highlightSelectedArc(target);
+		showArcCurvatureHandles(target);
+		infoMessage = 'Drag Bezier control points to adjust the arc.';
+	}
+
+	function showArcCurvatureHandles(edge: cytoscape.SingularElementReturnValue) {
+		if (!cy) return;
+
+		const controls = controlPositionsForEdge(edge);
+		if (!controls.length) return;
+		const sourceId = edge.source().id();
+		const targetId = edge.target().id();
+
+		cy.add(
+			controls.map((position, index) => ({
+				group: 'nodes',
+				data: {
+					id: arcControlId(edge.id(), index),
+					edgeId: edge.id(),
+					controlIndex: index
+				},
+				position,
+				classes: 'curve-control-node',
+				grabbable: true
+			}))
+		);
+		cy.add(
+			controls.flatMap((_, index) => {
+				const controlId = arcControlId(edge.id(), index);
+				if (controls.length === 1) {
+					return [
+						curveControlGuide(edge.id(), index, 'source', sourceId, controlId),
+						curveControlGuide(edge.id(), index, 'target', targetId, controlId)
+					];
+				}
+
+				const endpointId = index < controls.length / 2 ? sourceId : targetId;
+				const side = endpointId === sourceId ? 'source' : 'target';
+				return [curveControlGuide(edge.id(), index, side, endpointId, controlId)];
+			})
+		);
+	}
+
+	function curveControlGuide(
+		edgeId: string,
+		index: number,
+		side: 'source' | 'target',
+		endpointId: string,
+		controlId: string
+	) {
+		return {
+			group: 'edges' as const,
+			data: {
+				id: `${arcControlId(edgeId, index)}-guide-${side}`,
+				source: endpointId,
+				target: controlId
+			},
+			classes: 'curve-control-guide'
+		};
+	}
+
+	function updateArcCurvatureFromHandles(edgeId: string) {
+		if (!cy) return;
+
+		const edge = cy.getElementById(edgeId);
+		if (!edge.nonempty()) return;
+
+		const source = edge.source().position();
+		const target = edge.target().position();
+		const handles = cy
+			.nodes('.curve-control-node')
+			.filter((node) => node.data('edgeId') === edgeId)
+			.sort((a, b) => Number(a.data('controlIndex')) - Number(b.data('controlIndex')));
+		const projected = handles.map((handle) =>
+			projectControlPoint((handle as cytoscape.NodeSingular).position(), source, target)
+		);
+		edge.data('controlPointDistances', projected.map((control) => control.distance).join(' '));
+		edge.data('controlPointWeights', projected.map((control) => control.weight).join(' '));
+	}
+
+	function controlPositionsForEdge(edge: cytoscape.SingularElementReturnValue) {
+		const source = edge.source().position();
+		const target = edge.target().position();
+		const distances = parseNumberList(String(edge.data('controlPointDistances') ?? ''));
+		const weights = parseNumberList(String(edge.data('controlPointWeights') ?? ''));
+
+		return distances.map((controlDistance, index) =>
+			controlPointPosition(source, target, controlDistance, weights[index] ?? 0.5)
+		);
+	}
+
+	function controlPointPosition(
+		source: { x: number; y: number },
+		target: { x: number; y: number },
+		controlDistance: number,
+		weight: number
+	) {
+		const dx = target.x - source.x;
+		const dy = target.y - source.y;
+		const length = Math.hypot(dx, dy);
+		if (length === 0) return { ...source };
+
+		const chordX = dx / length;
+		const chordY = dy / length;
+		const normalX = -chordY;
+		const normalY = chordX;
+		return {
+			x: source.x + chordX * weight * length + normalX * controlDistance,
+			y: source.y + chordY * weight * length + normalY * controlDistance
+		};
+	}
+
+	function projectControlPoint(
+		point: { x: number; y: number },
+		source: { x: number; y: number },
+		target: { x: number; y: number }
+	) {
+		const dx = target.x - source.x;
+		const dy = target.y - source.y;
+		const length = Math.hypot(dx, dy);
+		if (length === 0) return { distance: 0, weight: 0.5 };
+
+		const chordX = dx / length;
+		const chordY = dy / length;
+		const normalX = -chordY;
+		const normalY = chordX;
+		const pointDx = point.x - source.x;
+		const pointDy = point.y - source.y;
+		return {
+			distance: pointDx * normalX + pointDy * normalY,
+			weight: (pointDx * chordX + pointDy * chordY) / length
+		};
+	}
+
+	function parseNumberList(value: string) {
+		return value
+			.trim()
+			.split(/\s+/)
+			.map(Number)
+			.filter(Number.isFinite);
+	}
+
+	function highlightSelectedArc(edge: cytoscape.SingularElementReturnValue | null) {
+		if (!cy) return;
+
+		const styles = getComputedStyle(document.documentElement);
+		const highlight = styles.getPropertyValue('--accent').trim();
+		cy.edges('.ordinary-edge').forEach((ordinaryEdge) => {
+			const active = edge !== null && ordinaryEdge.id() === edge.id();
+			ordinaryEdge.style({
+				width: active ? 5 : '',
+				'line-color': active ? highlight : '',
+				'target-arrow-color': active ? highlight : '',
+				'line-opacity': active ? 1 : ''
+			});
+		});
+	}
+
+	function clearArcCurvatureHandles() {
+		cy?.edges('.curve-control-guide').remove();
+		cy?.nodes('.curve-control-node').remove();
+		highlightSelectedArc(null);
+		selectedArcId = null;
+	}
+
+	function exitAdjustArcCurvature() {
+		if (graphState.mode !== 'adjust-arc-curvature') return;
+
+		clearArcCurvatureHandles();
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function arcControlId(edgeId: string, index: number) {
+		return `curve-control-${edgeId}-${index}`;
 	}
 
 	function constrainedAnchorPosition(
@@ -494,13 +755,968 @@
 		orbifoldEnd.position(extendFromVertex(vertex, anchor, ORBIFOLD_EDGE_LENGTH));
 	}
 
-	function finishAdjustEmanatingAngle() {
+	function setAllArmLengths(nextLength: number) {
+		if (!cy || !renderedGraph) return;
+		const targetRadius = Math.max(MIN_ARM_RADIUS, nextLength);
+
+		for (const [vertexIndex, cycle] of renderedGraph.sigma0.entries()) {
+			const vertex = cy.getElementById(vertexId(vertexIndex));
+			if (!vertex.nonempty()) continue;
+
+			const vertexPosition = vertex.position();
+			for (const halfEdge of cycle) {
+				const anchor = cy.getElementById(anchorId(halfEdge));
+				if (!anchor.nonempty()) continue;
+
+				const current = anchor.position();
+				const currentRadius = distance(vertexPosition, current);
+				if (currentRadius === 0) continue;
+
+				const scale = targetRadius / currentRadius;
+				const nextAnchor = {
+					x: vertexPosition.x + (current.x - vertexPosition.x) * scale,
+					y: vertexPosition.y + (current.y - vertexPosition.y) * scale
+				};
+				anchor.position(nextAnchor);
+				updateOrbifoldEndForAnchor(halfEdge, vertexPosition, nextAnchor);
+			}
+
+			updateIncidentBezierControls(String(vertex.data('starId')));
+		}
+
+		publishCurrentArmLength();
+		infoMessage = `Half-edge arm length set to ${Math.round(targetRadius)}.`;
+		window.setTimeout(() => {
+			if (!mutating && graphState.mode !== 'adjust-emanating-angle') infoMessage = '';
+		}, 900);
+	}
+
+	function confirmAdjustSelection(position?: { x: number; y: number }) {
+		if (graphState.mode !== 'adjust-emanating-angle') return;
+
+		if (position && adjustingHalfEdge !== null) {
+			adjustSelectedAnchor(position);
+		}
+
+		adjustingHalfEdge = null;
+		highlightHalfEdgeArms('all');
+		infoMessage = 'Click a half-edge arm to adjust its emanating angle.';
+	}
+
+	function exitAdjustEmanatingAngle() {
 		if (graphState.mode !== 'adjust-emanating-angle') return;
 
 		adjustingHalfEdge = null;
 		highlightHalfEdgeArms(null);
 		graphState.mode = 'idle';
 		infoMessage = '';
+	}
+
+	function beginRotateVertex(event: cytoscape.EventObject) {
+		if (!cy || !renderedGraph || !event.target.hasClass('v-node')) return;
+
+		const vertexIndex = Number(event.target.data('vertexIndex'));
+		if (!Number.isInteger(vertexIndex)) return;
+
+		rotatingVertexIndex = vertexIndex;
+		const vertexPosition = event.target.position();
+		rotationStartAngle = angleFromNorth(vertexPosition, event.position);
+		rotationStartPositions = snapshotStarPositions(vertexIndex);
+		infoMessage = 'Move pointer to rotate the vertex. Click anywhere to confirm.';
+		highlightVertexNodes(vertexIndex);
+		highlightVertexArms(vertexIndex);
+	}
+
+	function rotateSelectedVertex(pointer: { x: number; y: number }) {
+		if (!cy || !renderedGraph || rotatingVertexIndex === null) return;
+
+		const vertex = cy.getElementById(vertexId(rotatingVertexIndex));
+		const cycle = renderedGraph.sigma0[rotatingVertexIndex];
+		if (!vertex.nonempty() || !cycle) return;
+
+		const vertexPosition = vertex.position();
+		const delta = signedAngleDelta(rotationStartAngle, angleFromNorth(vertexPosition, pointer));
+		const starId = String(vertex.data('starId'));
+
+		for (const halfEdge of cycle) {
+			const anchor = cy.getElementById(anchorId(halfEdge));
+			const start = rotationStartPositions.get(anchor.id());
+			if (!anchor.nonempty() || !start) continue;
+
+			const nextAnchor = rotatePoint(vertexPosition, start, delta);
+			anchor.position(nextAnchor);
+			updateOrbifoldEndForAnchor(halfEdge, vertexPosition, nextAnchor);
+		}
+
+		updateIncidentBezierControls(starId);
+	}
+
+	function confirmRotateSelection(position?: { x: number; y: number }) {
+		if (graphState.mode !== 'rotate-vertex') return;
+
+		if (position && rotatingVertexIndex !== null) {
+			rotateSelectedVertex(position);
+		}
+
+		rotatingVertexIndex = null;
+		rotationStartPositions = new Map();
+		highlightVertexNodes('all');
+		highlightVertexArms(null);
+		infoMessage = 'Click a vertex to rotate its half-edge arms.';
+	}
+
+	function exitRotateVertex() {
+		if (graphState.mode !== 'rotate-vertex') return;
+
+		rotatingVertexIndex = null;
+		rotationStartPositions = new Map();
+		highlightVertexNodes(null);
+		highlightVertexArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function beginModifyMultiplicity(target: cytoscape.SingularElementReturnValue) {
+		if (!cy || !renderedGraph || !target.hasClass('v-node')) return;
+
+		const vertexIndex = Number(target.data('vertexIndex'));
+		if (!Number.isInteger(vertexIndex)) return;
+
+		multiplicityModalVertexIndex = vertexIndex;
+		highlightVertexNodes(vertexIndex);
+		infoMessage = `Changing multiplicity of v${vertexIndex + 1}.`;
+	}
+
+	function confirmMultiplicityEdit(values: string[]) {
+		if (!renderedGraph || multiplicityModalVertexIndex === null) return;
+
+		const value = Number(values[0]);
+		if (!Number.isInteger(value) || value < 1) {
+			infoMessage = 'Multiplicity must be a positive integer.';
+			return;
+		}
+
+		const vertexIndex = multiplicityModalVertexIndex;
+		const nextGraph: BrauerGraph = {
+			...renderedGraph,
+			multiplicity: renderedGraph.multiplicity.map((multiplicity, index) =>
+				index === vertexIndex ? value : multiplicity
+			)
+		};
+
+		renderedGraph = nextGraph;
+		updateVertexMultiplicityDisplay(vertexIndex, value);
+		onGraphMutated?.(nextGraph);
+		multiplicityModalVertexIndex = null;
+		highlightVertexNodes('all');
+		infoMessage = 'Click a vertex to change its multiplicity.';
+	}
+
+	function cancelMultiplicityEdit() {
+		multiplicityModalVertexIndex = null;
+		if (graphState.mode === 'modify-multiplicity') {
+			highlightVertexNodes('all');
+			infoMessage = 'Click a vertex to change its multiplicity.';
+		}
+	}
+
+	function exitModifyMultiplicity() {
+		if (graphState.mode !== 'modify-multiplicity') return;
+
+		multiplicityModalVertexIndex = null;
+		highlightVertexNodes(null);
+		graphState.mode = 'idle';
+		refreshMultiplicityLabels();
+		infoMessage = '';
+	}
+
+	function beginAddVertex(position: { x: number; y: number }) {
+		if (!cy) return;
+
+		const tooClose = cy.nodes('.v-node').some((node) => {
+			const vertex = node as cytoscape.NodeSingular;
+			return distance(vertex.position(), position) < FAR_ENOUGH_PX;
+		});
+		if (tooClose) {
+			infoMessage = 'Too close to an existing vertex.';
+			window.setTimeout(() => {
+				if (!mutating && graphState.mode === 'add-vertex' && addVertexPosition === null) {
+					infoMessage = 'Click an empty area to place a new vertex.';
+				}
+			}, 900);
+			return;
+		}
+
+		addVertexPosition = { ...position };
+		infoMessage = 'Enter the number of half-edges for the new vertex.';
+	}
+
+	function confirmAddVertex(values: string[]) {
+		if (!cy || !addVertexPosition) return;
+
+		const halfEdgeCount = Number(values[0]);
+		const multiplicity = Number(values[1] || 1);
+		if (!Number.isInteger(halfEdgeCount) || halfEdgeCount < 1) {
+			infoMessage = 'Number of half-edges must be a positive integer.';
+			return;
+		}
+		if (!Number.isInteger(multiplicity) || multiplicity < 1) {
+			infoMessage = 'Multiplicity must be a positive integer.';
+			return;
+		}
+
+		const currentGraph = renderedGraph ?? { n: 0, orbifoldEdges: [], sigma0: [], multiplicity: [] };
+		const vertexIndex = currentGraph.sigma0.length;
+		const cycle = Array.from({ length: halfEdgeCount }, (_, index) => currentGraph.n + index + 1);
+		const nextGraph: BrauerGraph = {
+			n: currentGraph.n + halfEdgeCount,
+			orbifoldEdges: [...(currentGraph.orbifoldEdges ?? [])],
+			sigma0: [...currentGraph.sigma0.map((existingCycle) => [...existingCycle]), cycle],
+			multiplicity: [...currentGraph.multiplicity, multiplicity]
+		};
+
+		addVertexStar(nextGraph, vertexIndex, addVertexPosition);
+		renderedGraph = nextGraph;
+		canvasHasGraph = true;
+		onGraphMutated?.(nextGraph);
+		publishCurrentArmLength();
+		addVertexPosition = null;
+		infoMessage = 'Click an empty area to place a new vertex.';
+	}
+
+	function cancelAddVertex() {
+		addVertexPosition = null;
+		if (graphState.mode === 'add-vertex') {
+			infoMessage = renderedGraph ? 'Click an empty area to place a new vertex.' : '';
+		}
+	}
+
+	function exitAddVertex() {
+		if (graphState.mode !== 'add-vertex') return;
+
+		addVertexPosition = null;
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function beginAddHalfEdge(event: cytoscape.EventObject) {
+		if (!cy || !renderedGraph) return;
+
+		const halfEdge = halfEdgeForAdjustTarget(event.target, event.position);
+		if (!Number.isInteger(halfEdge)) return;
+
+		addHalfEdgeAfter = halfEdge;
+		highlightHalfEdgeArms(halfEdge);
+		infoMessage = `Adding half-edge arms after ${halfEdge}.`;
+	}
+
+	function confirmAddHalfEdges(values: string[]) {
+		if (!cy || !renderedGraph || addHalfEdgeAfter === null) return;
+
+		const count = Number(values[0]);
+		if (!Number.isInteger(count) || count < 1) {
+			infoMessage = 'Number of half-edge arms must be a positive integer.';
+			return;
+		}
+
+		const location = findHalfEdgeLocation(addHalfEdgeAfter);
+		if (!location) return;
+
+		const newHalfEdges = Array.from({ length: count }, (_, index) => renderedGraph!.n + index + 1);
+		const nextSigma0 = renderedGraph.sigma0.map((cycle, vertexIndex) => {
+			if (vertexIndex !== location.vertexIndex) return [...cycle];
+			return [
+				...cycle.slice(0, location.cycleIndex + 1),
+				...newHalfEdges,
+				...cycle.slice(location.cycleIndex + 1)
+			];
+		});
+		const nextGraph: BrauerGraph = {
+			...renderedGraph,
+			n: renderedGraph.n + count,
+			sigma0: nextSigma0
+		};
+
+		insertHalfEdgeElements(nextGraph, location.vertexIndex, addHalfEdgeAfter, newHalfEdges);
+		renderedGraph = nextGraph;
+		onGraphMutated?.(nextGraph);
+		publishCurrentArmLength();
+		addHalfEdgeAfter = null;
+		highlightHalfEdgeArms('all');
+		infoMessage = 'Select a half-edge to insert after.';
+	}
+
+	function cancelAddHalfEdges() {
+		addHalfEdgeAfter = null;
+		if (graphState.mode === 'add-half-edge') {
+			highlightHalfEdgeArms('all');
+			infoMessage = 'Select a half-edge to insert after.';
+		}
+	}
+
+	function exitAddHalfEdge() {
+		if (graphState.mode !== 'add-half-edge') return;
+
+		addHalfEdgeAfter = null;
+		highlightHalfEdgeArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function beginAddOrbifoldEdge(target: cytoscape.SingularElementReturnValue, position: { x: number; y: number }) {
+		if (!renderedGraph) return;
+
+		const halfEdge = halfEdgeForAdjustTarget(target, position);
+		if (!isDanglingPositiveHalfEdge(halfEdge)) {
+			infoMessage = 'Select a dangling half-edge.';
+			return;
+		}
+
+		connectOrbifoldEdge(halfEdge);
+	}
+
+	function connectOrbifoldEdge(halfEdge: number) {
+		if (!cy || !renderedGraph) return;
+
+		const anchor = cy.getElementById(anchorId(halfEdge));
+		const vertexIndex = Number(anchor.data('vertexIndex'));
+		const vertex = cy.getElementById(vertexId(vertexIndex));
+		if (!anchor.nonempty() || !vertex.nonempty()) return;
+
+		const nextGraph: BrauerGraph = {
+			...renderedGraph,
+			orbifoldEdges: [...new Set([...(renderedGraph.orbifoldEdges ?? []), halfEdge])].sort((a, b) => a - b)
+		};
+		renderedGraph = nextGraph;
+		cy.add(buildOrbifoldElements(nextGraph, halfEdge));
+		onGraphMutated?.(nextGraph);
+		highlightHalfEdgeArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function createNewOrbifoldEdge(position = nextOpenVertexPosition()) {
+		if (!cy) return;
+
+		const currentGraph = renderedGraph ?? { n: 0, orbifoldEdges: [], sigma0: [], multiplicity: [] };
+		const edge = currentGraph.n + 1;
+		const vertexIndex = currentGraph.sigma0.length;
+		const nextGraph: BrauerGraph = {
+			n: edge,
+			orbifoldEdges: [...(currentGraph.orbifoldEdges ?? []), edge],
+			sigma0: [...currentGraph.sigma0.map((cycle) => [...cycle]), [edge]],
+			multiplicity: [...currentGraph.multiplicity, 1]
+		};
+
+		addVertexStar(nextGraph, vertexIndex, position);
+		renderedGraph = nextGraph;
+		canvasHasGraph = true;
+		onGraphMutated?.(nextGraph);
+		publishCurrentArmLength();
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function buildOrbifoldElements(graph: BrauerGraph, halfEdge: number): cytoscape.ElementDefinition[] {
+		if (!cy) return [];
+
+		const positions = currentNodePositions();
+		const anchor = cy.getElementById(anchorId(halfEdge));
+		const vertexIndex = Number(anchor.data('vertexIndex'));
+		const vertex = cy.getElementById(vertexId(vertexIndex));
+		if (!anchor.nonempty() || !vertex.nonempty()) return [];
+
+		positions[orbifoldEndId(halfEdge)] = extendFromVertex(vertex.position(), anchor.position(), ORBIFOLD_EDGE_LENGTH);
+
+		return buildElements(graph, positions, options).filter((element) => {
+			const id = String(element.data?.id ?? '');
+			return id === orbifoldEndId(halfEdge) || id === orbifoldConnectingEdgeId(halfEdge);
+		});
+	}
+
+	function insertHalfEdgeElements(
+		graph: BrauerGraph,
+		vertexIndex: number,
+		afterHalfEdge: number,
+		newHalfEdges: number[]
+	) {
+		if (!cy || !renderedGraph) return;
+
+		const positions = currentNodePositions();
+		const vertex = cy.getElementById(vertexId(vertexIndex));
+		const oldCycle = renderedGraph.sigma0[vertexIndex];
+		const cycleIndex = oldCycle.indexOf(afterHalfEdge);
+		const nextHalfEdge = oldCycle[(cycleIndex + 1) % oldCycle.length] ?? afterHalfEdge;
+		const beforeAnchor = cy.getElementById(anchorId(afterHalfEdge));
+		const afterAnchor = cy.getElementById(anchorId(nextHalfEdge));
+		if (!vertex.nonempty() || !beforeAnchor.nonempty() || !afterAnchor.nonempty()) return;
+
+		const insertedPositions = interpolateSector(
+			vertex.position(),
+			beforeAnchor.position(),
+			afterAnchor.position(),
+			newHalfEdges.length
+		);
+		newHalfEdges.forEach((halfEdge, index) => {
+			positions[anchorId(halfEdge)] = insertedPositions[index];
+		});
+
+		removeOrderingArrowsForVertex(vertexIndex);
+		const newHalfEdgeIds = new Set(newHalfEdges);
+		const elements = buildElements(graph, positions, options).filter((element) => {
+			const id = String(element.data?.id ?? '');
+			const source = String(element.data?.source ?? '');
+			const target = String(element.data?.target ?? '');
+			const halfEdge = Number(element.data?.h);
+
+			if (id.startsWith(`arrpt-${vertexIndex}-`)) return true;
+			if (source.startsWith(`arrpt-${vertexIndex}-`) || target.startsWith(`arrpt-${vertexIndex}-`)) return true;
+			if (element.group === 'nodes') return newHalfEdgeIds.has(halfEdge);
+			return source === vertexId(vertexIndex) && newHalfEdgeIds.has(halfEdge);
+		});
+
+		cy.add(elements);
+		cy.layout({ name: 'preset', fit: false }).run();
+	}
+
+	function removeOrderingArrowsForVertex(vertexIndex: number) {
+		if (!cy) return;
+
+		const pointPrefix = `arrpt-${vertexIndex}-`;
+		const points = cy.nodes().filter((node) => node.id().startsWith(pointPrefix));
+		const pointIds = new Set(points.map((node) => node.id()));
+		cy.edges()
+			.filter((edge) => pointIds.has(edge.source().id()) || pointIds.has(edge.target().id()))
+			.remove();
+		points.remove();
+	}
+
+	function exitAddOrbifoldEdge() {
+		if (graphState.mode !== 'add-orbifold-edge') return;
+
+		highlightHalfEdgeArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function removeVertex(vertexIndex: number) {
+		if (!cy || !renderedGraph) return;
+
+		const graph = renderedGraph;
+		const removedCycle = graph.sigma0[vertexIndex];
+		if (!removedCycle) return;
+
+		const currentPositions = currentNodePositions();
+		const removed = new Set(removedCycle);
+		const replacements = new Map<number, number>();
+		let nextLabel = maxPositiveLabel(graph.sigma0);
+
+		const nextSigma0 = graph.sigma0
+			.filter((_, index) => index !== vertexIndex)
+			.map((cycle) =>
+				cycle.map((halfEdge) => {
+					if (!removed.has(-halfEdge)) return halfEdge;
+					nextLabel += 1;
+					replacements.set(halfEdge, nextLabel);
+					return nextLabel;
+				})
+			);
+
+		const nextOrbifoldEdges = (graph.orbifoldEdges ?? []).filter(
+			(edge) => !removed.has(edge)
+		);
+		const compact = compactHalfEdgeLabels(nextSigma0, nextOrbifoldEdges);
+
+		const nextPositions: NodePositions = {};
+		graph.sigma0.forEach((cycle, oldVertexIndex) => {
+			if (oldVertexIndex === vertexIndex) return;
+
+			const newVertexIndex = oldVertexIndex > vertexIndex ? oldVertexIndex - 1 : oldVertexIndex;
+			const oldVertexPosition = currentPositions[vertexId(oldVertexIndex)];
+			if (oldVertexPosition) nextPositions[vertexId(newVertexIndex)] = oldVertexPosition;
+
+			for (const halfEdge of cycle) {
+				if (removed.has(halfEdge)) continue;
+
+				const replacement = replacements.get(halfEdge);
+				const nextHalfEdge = replacement ?? halfEdge;
+				const compactHalfEdge = remapHalfEdge(nextHalfEdge, compact.labelMap);
+				const oldAnchorPosition = currentPositions[anchorId(halfEdge)];
+				if (oldAnchorPosition) nextPositions[anchorId(compactHalfEdge)] = oldAnchorPosition;
+
+				if ((graph.orbifoldEdges ?? []).includes(Math.abs(halfEdge))) {
+					const oldOrbifoldPosition = currentPositions[orbifoldEndId(Math.abs(halfEdge))];
+					if (oldOrbifoldPosition) nextPositions[orbifoldEndId(Math.abs(compactHalfEdge))] = oldOrbifoldPosition;
+				}
+			}
+		});
+
+		const nextGraph: BrauerGraph = {
+			n: compact.n,
+			orbifoldEdges: compact.orbifoldEdges,
+			sigma0: compact.sigma0,
+			multiplicity: graph.multiplicity.filter((_, index) => index !== vertexIndex)
+		};
+
+		rebuildGraphWithPositions(nextGraph, nextPositions);
+		onGraphMutated?.(nextGraph);
+		if (graphState.mode === 'remove-vertex') {
+			infoMessage = nextGraph.sigma0.length > 0 ? 'Click a vertex to remove it.' : '';
+			highlightVertexNodes(nextGraph.sigma0.length > 0 ? 'all' : null);
+		}
+	}
+
+	function removeArc(target: cytoscape.SingularElementReturnValue) {
+		if (!cy || !renderedGraph || !target.hasClass('ce-edge')) return;
+
+		const edge = Math.abs(Number(target.data('h')));
+		if (!Number.isInteger(edge) || edge <= 0) return;
+
+		if (target.hasClass('orbifold-edge')) {
+			removeOrbifoldArc(edge);
+			return;
+		}
+
+		if (target.hasClass('ordinary-edge')) {
+			removeOrdinaryArc(edge);
+		}
+	}
+
+	function removeOrdinaryArc(edge: number) {
+		if (!renderedGraph) return;
+		if (!findHalfEdgeLocation(edge) || !findHalfEdgeLocation(-edge)) return;
+
+		const graph = renderedGraph;
+		const currentPositions = currentNodePositions();
+		const replacement = maxPositiveLabel(graph.sigma0) + 1;
+		const rawSigma0 = graph.sigma0.map((cycle) =>
+			cycle.map((halfEdge) => halfEdge === -edge ? replacement : halfEdge)
+		);
+		const compact = compactHalfEdgeLabels(rawSigma0, graph.orbifoldEdges ?? []);
+		const nextGraph: BrauerGraph = {
+			n: compact.n,
+			orbifoldEdges: compact.orbifoldEdges,
+			sigma0: compact.sigma0,
+			multiplicity: [...graph.multiplicity]
+		};
+		const nextPositions = positionsAfterHalfEdgeRewrite(graph, currentPositions, (halfEdge) =>
+			halfEdge === -edge ? replacement : halfEdge,
+			compact.labelMap
+		);
+
+		rebuildGraphWithPositions(nextGraph, nextPositions);
+		onGraphMutated?.(nextGraph);
+		if (graphState.mode === 'remove-arc') {
+			infoMessage = 'Click an arc to remove it.';
+			highlightRemovableArcs();
+		}
+	}
+
+	function removeOrbifoldArc(edge: number) {
+		if (!renderedGraph) return;
+		if (!renderedGraph.orbifoldEdges?.includes(edge)) return;
+
+		const graph = renderedGraph;
+		const currentPositions = currentNodePositions();
+		const nextOrbifoldEdges = (graph.orbifoldEdges ?? []).filter((orbifoldEdge) => orbifoldEdge !== edge);
+		const compact = compactHalfEdgeLabels(graph.sigma0, nextOrbifoldEdges);
+		const nextGraph: BrauerGraph = {
+			n: compact.n,
+			orbifoldEdges: compact.orbifoldEdges,
+			sigma0: compact.sigma0,
+			multiplicity: [...graph.multiplicity]
+		};
+		const nextPositions = positionsAfterHalfEdgeRewrite(
+			graph,
+			currentPositions,
+			(halfEdge) => halfEdge,
+			compact.labelMap,
+			new Set([edge])
+		);
+
+		rebuildGraphWithPositions(nextGraph, nextPositions);
+		onGraphMutated?.(nextGraph);
+		if (graphState.mode === 'remove-arc') {
+			infoMessage = 'Click an arc to remove it.';
+			highlightRemovableArcs();
+		}
+	}
+
+	function positionsAfterHalfEdgeRewrite(
+		graph: BrauerGraph,
+		currentPositions: NodePositions,
+		rewrite: (halfEdge: number) => number,
+		labelMap: Map<number, number>,
+		removedOrbifoldEnds = new Set<number>()
+	) {
+		const nextPositions: NodePositions = {};
+		graph.sigma0.forEach((cycle, vertexIndex) => {
+			const vertexPosition = currentPositions[vertexId(vertexIndex)];
+			if (vertexPosition) nextPositions[vertexId(vertexIndex)] = vertexPosition;
+
+			for (const halfEdge of cycle) {
+				const nextHalfEdge = remapHalfEdge(rewrite(halfEdge), labelMap);
+				const anchorPosition = currentPositions[anchorId(halfEdge)];
+				if (anchorPosition) nextPositions[anchorId(nextHalfEdge)] = anchorPosition;
+
+				const orbifoldEdge = Math.abs(halfEdge);
+				if ((graph.orbifoldEdges ?? []).includes(orbifoldEdge) && !removedOrbifoldEnds.has(orbifoldEdge)) {
+					const orbifoldPosition = currentPositions[orbifoldEndId(orbifoldEdge)];
+					if (orbifoldPosition) nextPositions[orbifoldEndId(Math.abs(nextHalfEdge))] = orbifoldPosition;
+				}
+			}
+		});
+
+		return nextPositions;
+	}
+
+	function removeHalfEdge(target: cytoscape.SingularElementReturnValue, position: { x: number; y: number }) {
+		if (!cy || !renderedGraph) return;
+
+		const halfEdge = halfEdgeForAdjustTarget(target, position);
+		const location = findHalfEdgeLocation(halfEdge);
+		if (!location) return;
+
+		const graph = renderedGraph;
+		const currentPositions = currentNodePositions();
+		const removedAbs = Math.abs(halfEdge);
+		const filteredCycles = graph.sigma0.map((cycle, index) => ({
+			cycle: cycle.filter((entry) => entry !== halfEdge),
+			multiplicity: graph.multiplicity[index] ?? 1
+		}));
+		const nextSigma0 = filteredCycles.filter((entry) => entry.cycle.length > 0).map((entry) => entry.cycle);
+		const nextMultiplicity = filteredCycles
+			.filter((entry) => entry.cycle.length > 0)
+			.map((entry) => entry.multiplicity);
+		const nextOrbifoldEdges = (graph.orbifoldEdges ?? []).filter((edge) => edge !== removedAbs);
+		const compact = compactHalfEdgeLabels(nextSigma0, nextOrbifoldEdges);
+		const nextGraph: BrauerGraph = {
+			n: compact.n,
+			orbifoldEdges: compact.orbifoldEdges,
+			sigma0: compact.sigma0,
+			multiplicity: nextMultiplicity
+		};
+
+		const nextPositions: NodePositions = {};
+		let nextVertexIndex = 0;
+		graph.sigma0.forEach((cycle, oldVertexIndex) => {
+			if (oldVertexIndex === location.vertexIndex && cycle.length === 1) return;
+
+			const oldVertexPosition = currentPositions[vertexId(oldVertexIndex)];
+			if (oldVertexPosition) nextPositions[vertexId(nextVertexIndex)] = oldVertexPosition;
+
+			for (const entry of cycle) {
+				if (entry === halfEdge) continue;
+				const compactHalfEdge = remapHalfEdge(entry, compact.labelMap);
+				const oldAnchorPosition = currentPositions[anchorId(entry)];
+				if (oldAnchorPosition) nextPositions[anchorId(compactHalfEdge)] = oldAnchorPosition;
+
+				if ((graph.orbifoldEdges ?? []).includes(Math.abs(entry))) {
+					const oldOrbifoldPosition = currentPositions[orbifoldEndId(Math.abs(entry))];
+					if (oldOrbifoldPosition) nextPositions[orbifoldEndId(Math.abs(compactHalfEdge))] = oldOrbifoldPosition;
+				}
+			}
+
+			nextVertexIndex += 1;
+		});
+
+		rebuildGraphWithPositions(nextGraph, nextPositions);
+		onGraphMutated?.(nextGraph);
+		if (graphState.mode === 'remove-half-edge') {
+			infoMessage = nextGraph.sigma0.length > 0 ? 'Click a half-edge to remove it.' : '';
+			highlightHalfEdgeArms(nextGraph.sigma0.length > 0 ? 'all' : null);
+		}
+	}
+
+	function beginReconnectArc(event: cytoscape.EventObject) {
+		if (!cy || !renderedGraph) return;
+
+		const halfEdge = halfEdgeForAdjustTarget(event.target, event.position);
+		if (!Number.isInteger(halfEdge)) return;
+
+		if (reconnectSourceHalfEdge === null) {
+			reconnectSourceHalfEdge = halfEdge;
+			highlightHalfEdgeArms(halfEdge);
+			infoMessage = 'Click a target half-edge.';
+			return;
+		}
+
+		reconnectArcs(reconnectSourceHalfEdge, halfEdge);
+	}
+
+	function reconnectArcs(sourceHalfEdge: number, targetHalfEdge: number) {
+		if (!cy || !renderedGraph || sourceHalfEdge === targetHalfEdge) return;
+		if (!findHalfEdgeLocation(sourceHalfEdge) || !findHalfEdgeLocation(targetHalfEdge)) return;
+
+		const graph = renderedGraph;
+		const currentPositions = currentNodePositions();
+		const replacements = reconnectReplacements(sourceHalfEdge, targetHalfEdge);
+		if (!replacements) return;
+
+		const rawSigma0 = graph.sigma0.map((cycle) =>
+			cycle.map((halfEdge) => replacements.get(halfEdge) ?? halfEdge)
+		);
+		const involved = new Set([Math.abs(sourceHalfEdge), Math.abs(targetHalfEdge)]);
+		const rawOrbifoldEdges = (graph.orbifoldEdges ?? []).filter((edge) => !involved.has(edge));
+		const compact = compactHalfEdgeLabels(rawSigma0, rawOrbifoldEdges);
+		const nextGraph: BrauerGraph = {
+			n: compact.n,
+			orbifoldEdges: compact.orbifoldEdges,
+			sigma0: compact.sigma0,
+			multiplicity: [...graph.multiplicity]
+		};
+
+		const nextPositions: NodePositions = {};
+		graph.sigma0.forEach((cycle, vertexIndex) => {
+			const vertexPosition = currentPositions[vertexId(vertexIndex)];
+			if (vertexPosition) nextPositions[vertexId(vertexIndex)] = vertexPosition;
+
+			for (const halfEdge of cycle) {
+				const rawHalfEdge = replacements.get(halfEdge) ?? halfEdge;
+				const compactHalfEdge = remapHalfEdge(rawHalfEdge, compact.labelMap);
+				const oldAnchorPosition = currentPositions[anchorId(halfEdge)];
+				if (oldAnchorPosition) nextPositions[anchorId(compactHalfEdge)] = oldAnchorPosition;
+			}
+		});
+
+		rebuildGraphWithPositions(nextGraph, nextPositions);
+		onGraphMutated?.(nextGraph);
+		reconnectSourceHalfEdge = null;
+		if (graphState.mode === 'reconnect-arc') {
+			highlightHalfEdgeArms('all');
+			infoMessage = 'Click a source half-edge.';
+		}
+	}
+
+	function reconnectReplacements(sourceHalfEdge: number, targetHalfEdge: number) {
+		const sourcePositive = sourceHalfEdge > 0;
+		const targetPositive = targetHalfEdge > 0;
+		const source = Math.abs(sourceHalfEdge);
+		const target = Math.abs(targetHalfEdge);
+		const replacements = new Map<number, number>();
+
+		if (sourcePositive && targetPositive) {
+			const x = Math.max(source, target);
+			const y = Math.min(source, target);
+			replacements.set(y, -x);
+			return replacements;
+		}
+
+		if (sourcePositive && !targetPositive) {
+			replacements.set(targetHalfEdge, -source);
+			return replacements;
+		}
+
+		if (!sourcePositive && targetPositive) {
+			replacements.set(sourceHalfEdge, -target);
+			return replacements;
+		}
+
+		const next = (renderedGraph?.n ?? 0) + 1;
+		replacements.set(sourceHalfEdge, next);
+		replacements.set(targetHalfEdge, -next);
+		return replacements;
+	}
+
+	function maxPositiveLabel(sigma0: number[][]) {
+		return Math.max(0, ...sigma0.flat().map((halfEdge) => Math.abs(halfEdge)));
+	}
+
+	function compactHalfEdgeLabels(sigma0: number[][], orbifoldEdges: number[]) {
+		const positives = Array.from(
+			new Set([...sigma0.flat().map((halfEdge) => Math.abs(halfEdge)), ...orbifoldEdges])
+		).sort((a, b) => a - b);
+		const labelMap = new Map<number, number>();
+		positives.forEach((label, index) => labelMap.set(label, index + 1));
+
+		return {
+			labelMap,
+			n: positives.length,
+			orbifoldEdges: orbifoldEdges.map((edge) => labelMap.get(edge) ?? edge).sort((a, b) => a - b),
+			sigma0: sigma0.map((cycle) => cycle.map((halfEdge) => remapHalfEdge(halfEdge, labelMap)))
+		};
+	}
+
+	function remapHalfEdge(halfEdge: number, labelMap: Map<number, number>) {
+		const next = labelMap.get(Math.abs(halfEdge)) ?? Math.abs(halfEdge);
+		return halfEdge < 0 ? -next : next;
+	}
+
+	function exitRemoveVertex() {
+		if (graphState.mode !== 'remove-vertex') return;
+
+		highlightVertexNodes(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function exitRemoveArc() {
+		if (graphState.mode !== 'remove-arc') return;
+
+		highlightRemovableArcs(false);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function exitRemoveHalfEdge() {
+		if (graphState.mode !== 'remove-half-edge') return;
+
+		highlightHalfEdgeArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function exitReconnectArc() {
+		if (graphState.mode !== 'reconnect-arc') return;
+
+		reconnectSourceHalfEdge = null;
+		highlightHalfEdgeArms(null);
+		graphState.mode = 'idle';
+		infoMessage = '';
+	}
+
+	function addVertexStar(
+		graph: BrauerGraph,
+		vertexIndex: number,
+		vertexPosition: { x: number; y: number }
+	) {
+		if (!cy) return;
+
+		const starId = starParentId(vertexIndex);
+		const positions = currentNodePositions();
+		positions[vertexId(vertexIndex)] = vertexPosition;
+		const elements = buildElements(graph, positions, options).filter((element) => {
+			if (element.group === 'nodes') return element.data?.starId === starId;
+			const source = String(element.data?.source ?? '');
+			const target = String(element.data?.target ?? '');
+			return source.startsWith(`arrpt-${vertexIndex}-`) || target.startsWith(`arrpt-${vertexIndex}-`) ||
+				graph.sigma0[vertexIndex].some((halfEdge) =>
+					(source === vertexId(vertexIndex) && target === anchorId(halfEdge)) ||
+					(source === anchorId(halfEdge) && target === orbifoldEndId(halfEdge))
+				);
+		});
+
+		cy.add(elements);
+		cy.layout({ name: 'preset', fit: false }).run();
+	}
+
+	function currentNodePositions(): NodePositions {
+		const positions: NodePositions = {};
+		if (!cy) return positions;
+
+		cy.nodes().forEach((node) => {
+			positions[node.id()] = { ...node.position() };
+		});
+
+		return positions;
+	}
+
+	function findHalfEdgeLocation(halfEdge: number) {
+		if (!renderedGraph) return null;
+
+		for (const [vertexIndex, cycle] of renderedGraph.sigma0.entries()) {
+			const cycleIndex = cycle.indexOf(halfEdge);
+			if (cycleIndex !== -1) return { vertexIndex, cycleIndex };
+		}
+
+		return null;
+	}
+
+	function danglingPositiveHalfEdges() {
+		if (!renderedGraph) return [];
+
+		const present = new Set(renderedGraph.sigma0.flat());
+		const orbifoldEdges = new Set(renderedGraph.orbifoldEdges ?? []);
+		return renderedGraph.sigma0
+			.flat()
+			.filter((halfEdge) => halfEdge > 0 && !present.has(-halfEdge) && !orbifoldEdges.has(halfEdge));
+	}
+
+	function hasDanglingPositiveHalfEdges() {
+		return danglingPositiveHalfEdges().length > 0;
+	}
+
+	function isDanglingPositiveHalfEdge(halfEdge: number) {
+		return danglingPositiveHalfEdges().includes(halfEdge);
+	}
+
+	function highlightHalfEdgeSet(halfEdges: number[]) {
+		if (!cy) return;
+
+		const active = new Set(halfEdges);
+		const styles = getComputedStyle(document.documentElement);
+		const highlight = styles.getPropertyValue('--highlight-color').trim();
+		cy.edges('.he-edge').forEach((edge) => {
+			const isActive = active.has(Number(edge.data('h')));
+			edge.style({
+				width: isActive ? 4 : '',
+				'line-color': isActive ? highlight : '',
+				'target-arrow-color': isActive ? highlight : '',
+				'line-opacity': isActive ? 1 : ''
+			});
+		});
+	}
+
+	function highlightRemovableArcs(active = true) {
+		if (!cy) return;
+
+		const styles = getComputedStyle(document.documentElement);
+		const highlight = styles.getPropertyValue('--highlight-color').trim();
+		cy.edges('.ce-edge').forEach((edge) => {
+			edge.style({
+				width: active ? 5 : '',
+				'line-color': active ? highlight : '',
+				'target-arrow-color': active ? highlight : '',
+				'line-opacity': active ? 1 : ''
+			});
+		});
+	}
+
+	function canvasCenterPosition() {
+		if (!container) return { x: 0, y: 0 };
+
+		const rect = container.getBoundingClientRect();
+		return {
+			x: rect.width / 2,
+			y: rect.height / 2
+		};
+	}
+
+	function nextOpenVertexPosition() {
+		if (!cy) return canvasCenterPosition();
+
+		const center = canvasCenterPosition();
+		const offsets = [
+			{ x: 0, y: 0 },
+			{ x: FAR_ENOUGH_PX, y: 0 },
+			{ x: -FAR_ENOUGH_PX, y: 0 },
+			{ x: 0, y: FAR_ENOUGH_PX },
+			{ x: 0, y: -FAR_ENOUGH_PX },
+			{ x: FAR_ENOUGH_PX, y: FAR_ENOUGH_PX },
+			{ x: -FAR_ENOUGH_PX, y: FAR_ENOUGH_PX },
+			{ x: FAR_ENOUGH_PX, y: -FAR_ENOUGH_PX },
+			{ x: -FAR_ENOUGH_PX, y: -FAR_ENOUGH_PX }
+		];
+		const vertices = cy.nodes('.v-node').map((node) => (node as cytoscape.NodeSingular).position());
+
+		for (const offset of offsets) {
+			const candidate = { x: center.x + offset.x, y: center.y + offset.y };
+			if (vertices.every((vertex) => distance(vertex, candidate) >= FAR_ENOUGH_PX)) return candidate;
+		}
+
+		return { x: center.x + FAR_ENOUGH_PX * 1.5, y: center.y + FAR_ENOUGH_PX * 1.5 };
+	}
+
+	function snapshotStarPositions(vertexIndex: number): Map<string, { x: number; y: number }> {
+		const snapshot = new Map<string, { x: number; y: number }>();
+		if (!cy || !renderedGraph) return snapshot;
+
+		for (const halfEdge of renderedGraph.sigma0[vertexIndex] ?? []) {
+			const anchor = cy.getElementById(anchorId(halfEdge));
+			if (anchor.nonempty()) snapshot.set(anchor.id(), { ...anchor.position() });
+		}
+
+		return snapshot;
 	}
 
 	function highlightHalfEdgeArms(activeHalfEdge: number | 'all' | null = 'all') {
@@ -520,6 +1736,38 @@
 		});
 	}
 
+	function highlightVertexNodes(activeVertex: number | 'all' | null = 'all') {
+		if (!cy) return;
+
+		const styles = getComputedStyle(document.documentElement);
+		const highlight = styles.getPropertyValue('--highlight-color').trim();
+		cy.nodes('.v-node').forEach((node) => {
+			const isClearing = activeVertex === null;
+			const isActive = activeVertex !== 'all' && Number(node.data('vertexIndex')) === activeVertex;
+			node.style({
+				'border-color': isClearing ? '' : highlight,
+				'border-width': isClearing ? '' : isActive ? 4 : 3,
+				'border-opacity': isClearing ? '' : isActive ? 1 : 0.65
+			});
+		});
+	}
+
+	function highlightVertexArms(vertexIndex: number | null) {
+		if (!cy) return;
+
+		const styles = getComputedStyle(document.documentElement);
+		const highlight = styles.getPropertyValue('--highlight-color').trim();
+		cy.edges('.he-edge').forEach((edge) => {
+			const isActive = Number(edge.source().data('vertexIndex')) === vertexIndex;
+			edge.style({
+				width: vertexIndex === null ? '' : isActive ? 5 : '',
+				'line-color': vertexIndex === null ? '' : isActive ? highlight : '',
+				'target-arrow-color': vertexIndex === null ? '' : isActive ? highlight : '',
+				'line-opacity': vertexIndex === null ? '' : isActive ? 1 : ''
+			});
+		});
+	}
+
 	function pointFromAngle(origin: { x: number; y: number }, radius: number, angle: number) {
 		return {
 			x: origin.x + radius * Math.sin(angle),
@@ -532,8 +1780,64 @@
 		return ((angle % tau) + tau) % tau;
 	}
 
+	function signedAngleDelta(start: number, end: number) {
+		const tau = 2 * Math.PI;
+		return ((end - start + Math.PI + tau) % tau) - Math.PI;
+	}
+
+	function rotatePoint(origin: { x: number; y: number }, point: { x: number; y: number }, angle: number) {
+		const dx = point.x - origin.x;
+		const dy = point.y - origin.y;
+		const cos = Math.cos(angle);
+		const sin = Math.sin(angle);
+
+		return {
+			x: origin.x + dx * cos - dy * sin,
+			y: origin.y + dx * sin + dy * cos
+		};
+	}
+
+	function publishCurrentArmLength() {
+		if (!cy || !renderedGraph) {
+			graphState.armLength = null;
+			return;
+		}
+
+		let total = 0;
+		let count = 0;
+		for (const [vertexIndex, cycle] of renderedGraph.sigma0.entries()) {
+			const vertex = cy.getElementById(vertexId(vertexIndex));
+			if (!vertex.nonempty()) continue;
+
+			const vertexPosition = vertex.position();
+			for (const halfEdge of cycle) {
+				const anchor = cy.getElementById(anchorId(halfEdge));
+				if (!anchor.nonempty()) continue;
+
+				total += distance(vertexPosition, anchor.position());
+				count += 1;
+			}
+		}
+
+		graphState.armLength = count > 0 ? total / count : null;
+	}
+
 	onMount(() => {
 		let cancelled = false;
+		const handleKeydown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') return;
+			exitAdjustEmanatingAngle();
+			exitAdjustArcCurvature();
+			exitRotateVertex();
+			exitModifyMultiplicity();
+			exitAddVertex();
+			exitAddHalfEdge();
+			exitAddOrbifoldEdge();
+			exitReconnectArc();
+			exitRemoveVertex();
+			exitRemoveArc();
+			exitRemoveHalfEdge();
+		};
 
 		async function mountCytoscape() {
 			await registerCytoscapeExtensions();
@@ -550,6 +1854,32 @@
 			});
 
 			cy.on('mouseover tap', '.v-node', (event) => {
+				if (graphState.mode === 'remove-vertex') {
+					if (event.type === 'tap') {
+						const vertexIndex = Number(event.target.data('vertexIndex'));
+						if (Number.isInteger(vertexIndex)) removeVertex(vertexIndex);
+					}
+					return;
+				}
+
+				if (graphState.mode === 'modify-multiplicity') {
+					if (event.type === 'tap') {
+						beginModifyMultiplicity(event.target);
+					}
+					return;
+				}
+
+				if (graphState.mode === 'rotate-vertex') {
+					if (event.type === 'tap') {
+						if (rotatingVertexIndex !== null) {
+							confirmRotateSelection(event.position);
+						} else {
+							beginRotateVertex(event);
+						}
+					}
+					return;
+				}
+
 				const node = event.target;
 				const multiplicity = node.data('multiplicity');
 				const rendered = node.renderedPosition();
@@ -569,10 +1899,24 @@
 			});
 
 			cy.on('drag', '.v-node, .u-node, .orbifold-node', (event) => {
-				if (graphState.mode === 'adjust-emanating-angle') return;
-				tooltip = null;
 				const target = event.target;
 				const previous = target.scratch('previousPosition') as { x: number; y: number } | undefined;
+				if (
+					graphState.mode === 'adjust-emanating-angle' ||
+					graphState.mode === 'rotate-vertex' ||
+					graphState.mode === 'modify-multiplicity' ||
+					graphState.mode === 'add-vertex' ||
+					graphState.mode === 'add-half-edge' ||
+					graphState.mode === 'add-orbifold-edge' ||
+					graphState.mode === 'reconnect-arc' ||
+					graphState.mode === 'remove-vertex' ||
+					graphState.mode === 'remove-arc' ||
+					graphState.mode === 'remove-half-edge'
+				) {
+					if (previous) target.position(previous);
+					return;
+				}
+				tooltip = null;
 				if (!previous) return;
 
 				const current = target.position();
@@ -584,34 +1928,120 @@
 				target.scratch('previousPosition', { ...current });
 			});
 
+			cy.on('drag', '.curve-control-node', (event) => {
+				updateArcCurvatureFromHandles(String(event.target.data('edgeId')));
+			});
+
 			cy.on('free', '.v-node, .u-node, .orbifold-node', (event) => {
 				event.target.removeScratch('previousPosition');
 			});
 
 			cy.on('tap', '[edgeId]', (event) => {
+				if (graphState.mode === 'adjust-arc-curvature') {
+					beginAdjustArcCurvature(event.target);
+					return;
+				}
+
+				if (graphState.mode === 'reconnect-arc') {
+					beginReconnectArc(event);
+					return;
+				}
+
+				if (graphState.mode === 'remove-arc') {
+					removeArc(event.target);
+					return;
+				}
+
+				if (graphState.mode === 'remove-half-edge') {
+					removeHalfEdge(event.target, event.position);
+					return;
+				}
+
+				if (graphState.mode === 'add-half-edge') {
+					if (addHalfEdgeAfter === null) beginAddHalfEdge(event);
+					return;
+				}
+
+				if (graphState.mode === 'add-orbifold-edge') {
+					beginAddOrbifoldEdge(event.target, event.position);
+					return;
+				}
+
+				if (graphState.mode === 'rotate-vertex' && rotatingVertexIndex !== null) {
+					confirmRotateSelection(event.position);
+					return;
+				}
+
 				if (graphState.mode === 'adjust-emanating-angle') {
-					beginAdjustEmanatingAngle(event.target);
+					if (adjustingHalfEdge !== null) {
+						confirmAdjustSelection(event.position);
+					} else {
+						beginAdjustEmanatingAngle(event);
+					}
 					return;
 				}
 				void handleMutationEdgeTap(event.target);
 			});
 
 			cy.on('tap', (event) => {
-				if (event.target === cy) finishAdjustEmanatingAngle();
+				if (String(event.target.data?.('edgeId') ?? '')) return;
+				if (event.target.hasClass?.('v-node')) return;
+
+				if (graphState.mode === 'rotate-vertex' && rotatingVertexIndex !== null) {
+					confirmRotateSelection(event.position);
+					return;
+				}
+
+				if (event.target === cy && graphState.mode === 'rotate-vertex') {
+					confirmRotateSelection();
+					return;
+				}
+
+				if (graphState.mode === 'adjust-emanating-angle' && adjustingHalfEdge !== null) {
+					confirmAdjustSelection(event.position);
+					return;
+				}
+
+				if (event.target === cy && graphState.mode === 'adjust-emanating-angle') {
+					confirmAdjustSelection();
+					return;
+				}
+
+				if (event.target === cy && graphState.mode === 'add-vertex') {
+					beginAddVertex(event.position);
+					return;
+				}
+
+				if (event.target === cy && graphState.mode === 'add-orbifold-edge') {
+					createNewOrbifoldEdge(event.position);
+				}
 			});
 
 			cy.on('mousemove', (event) => {
 				if (graphState.mode === 'adjust-emanating-angle' && adjustingHalfEdge !== null) {
 					adjustSelectedAnchor(event.position);
 				}
+				if (graphState.mode === 'rotate-vertex' && rotatingVertexIndex !== null) {
+					rotateSelectedVertex(event.position);
+				}
 			});
 
-			cy.on('mouseover', '[edgeId]', () => {
+			cy.on('mouseover', '[edgeId], .v-node', () => {
 				if (isSelectingMutationEdge()) container.style.cursor = 'pointer';
 				if (graphState.mode === 'adjust-emanating-angle') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'adjust-arc-curvature') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'rotate-vertex') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'modify-multiplicity') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'add-vertex') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'add-half-edge') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'add-orbifold-edge') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'reconnect-arc') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'remove-vertex') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'remove-arc') container.style.cursor = 'crosshair';
+				if (graphState.mode === 'remove-half-edge') container.style.cursor = 'crosshair';
 			});
 
-			cy.on('mouseout', '[edgeId]', () => {
+			cy.on('mouseout', '[edgeId], .v-node', () => {
 				if (container.style.cursor === 'pointer') container.style.cursor = '';
 				if (container.style.cursor === 'crosshair') container.style.cursor = '';
 			});
@@ -629,14 +2059,17 @@
 					canvasHasGraph = true;
 					renderedGraph = savedFile.graph;
 					renderedOptions = { ...loadOptions };
+					publishCurrentArmLength();
 				}
 			});
 		}
 
 		mountCytoscape();
+		document.addEventListener('keydown', handleKeydown);
 
 		return () => {
 			cancelled = true;
+			document.removeEventListener('keydown', handleKeydown);
 		};
 	});
 
@@ -669,9 +2102,206 @@
 	});
 
 	$effect(() => {
+		if (graphState.mode === 'adjust-arc-curvature') {
+			adjustArcCurvatureWasActive = true;
+			if (canvasHasGraph && selectedArcId === null) {
+				infoMessage = 'Click an arc to adjust its curvature.';
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (adjustArcCurvatureWasActive) {
+			adjustArcCurvatureWasActive = false;
+			clearArcCurvatureHandles();
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'rotate-vertex') {
+			rotateModeWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = rotatingVertexIndex === null ? 'Click a vertex to rotate its half-edge arms.' : infoMessage;
+				if (rotatingVertexIndex === null) {
+					highlightVertexNodes('all');
+					highlightVertexArms(null);
+				}
+			}
+		} else if (rotateModeWasActive) {
+			rotateModeWasActive = false;
+			rotatingVertexIndex = null;
+			rotationStartPositions = new Map();
+			highlightVertexNodes(null);
+			highlightVertexArms(null);
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'modify-multiplicity') {
+			modifyMultiplicityWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = multiplicityModalVertexIndex === null
+					? 'Click a vertex to change its multiplicity.'
+					: infoMessage;
+				refreshMultiplicityLabels();
+				if (multiplicityModalVertexIndex === null) highlightVertexNodes('all');
+			}
+		} else if (modifyMultiplicityWasActive) {
+			modifyMultiplicityWasActive = false;
+			multiplicityModalVertexIndex = null;
+			highlightVertexNodes(null);
+			refreshMultiplicityLabels();
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'add-vertex') {
+			addVertexWasActive = true;
+			if (container) container.style.cursor = 'crosshair';
+			if (!canvasHasGraph && addVertexPosition === null) {
+				addVertexPosition = canvasCenterPosition();
+				infoMessage = 'Enter the number of half-edge arms for the new vertex.';
+			} else if (canvasHasGraph && addVertexPosition === null) {
+				infoMessage = 'Click an empty area to place a new vertex.';
+			}
+		} else if (addVertexWasActive) {
+			addVertexWasActive = false;
+			addVertexPosition = null;
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'add-half-edge') {
+			addHalfEdgeWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = addHalfEdgeAfter === null
+					? 'Select a half-edge to insert after.'
+					: infoMessage;
+				if (addHalfEdgeAfter === null) highlightHalfEdgeArms('all');
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (addHalfEdgeWasActive) {
+			addHalfEdgeWasActive = false;
+			addHalfEdgeAfter = null;
+			highlightHalfEdgeArms(null);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'add-orbifold-edge') {
+			addOrbifoldWasActive = true;
+			infoMessage = 'Select half-edge to connect, or click blank space to connect to new vertex.';
+			if (hasDanglingPositiveHalfEdges()) {
+				highlightHalfEdgeSet(danglingPositiveHalfEdges());
+			} else {
+				highlightHalfEdgeArms(null);
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (addOrbifoldWasActive) {
+			addOrbifoldWasActive = false;
+			highlightHalfEdgeArms(null);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'reconnect-arc') {
+			reconnectArcWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = reconnectSourceHalfEdge === null ? 'Click a source half-edge.' : infoMessage;
+				if (reconnectSourceHalfEdge === null) highlightHalfEdgeArms('all');
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (reconnectArcWasActive) {
+			reconnectArcWasActive = false;
+			reconnectSourceHalfEdge = null;
+			highlightHalfEdgeArms(null);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'remove-vertex') {
+			removeVertexWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = 'Click a vertex to remove it.';
+				highlightVertexNodes('all');
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (removeVertexWasActive) {
+			removeVertexWasActive = false;
+			highlightVertexNodes(null);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'remove-arc') {
+			removeArcWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = 'Click an arc to remove it.';
+				highlightRemovableArcs();
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (removeArcWasActive) {
+			removeArcWasActive = false;
+			highlightRemovableArcs(false);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (graphState.mode === 'remove-half-edge') {
+			removeHalfEdgeWasActive = true;
+			if (canvasHasGraph) {
+				infoMessage = 'Click a half-edge to remove it.';
+				highlightHalfEdgeArms('all');
+			}
+			if (container) container.style.cursor = 'crosshair';
+		} else if (removeHalfEdgeWasActive) {
+			removeHalfEdgeWasActive = false;
+			highlightHalfEdgeArms(null);
+			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
+			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		const requested = graphState.requestedArmLength;
+		if (requested === null) return;
+
+		graphState.requestedArmLength = null;
+		if (Number.isFinite(requested)) {
+			setAllArmLengths(requested);
+		}
+	});
+
+	$effect(() => {
 		if (graphState.mode === 'select-left-mutation-edge' || graphState.mode === 'select-right-mutation-edge') {
 			infoMessage = 'Click an edge to mutate it.';
-		} else if (!mutating) {
+		} else if (
+			graphState.mode !== 'adjust-emanating-angle' &&
+			graphState.mode !== 'adjust-arc-curvature' &&
+			graphState.mode !== 'rotate-vertex' &&
+			graphState.mode !== 'modify-multiplicity' &&
+			graphState.mode !== 'add-vertex' &&
+			graphState.mode !== 'add-half-edge' &&
+			graphState.mode !== 'add-orbifold-edge' &&
+			graphState.mode !== 'reconnect-arc' &&
+			graphState.mode !== 'remove-vertex' &&
+			graphState.mode !== 'remove-arc' &&
+			graphState.mode !== 'remove-half-edge' &&
+			!mutating
+		) {
 			infoMessage = '';
 			if (container) container.style.cursor = '';
 		}
@@ -770,6 +2400,42 @@
 	{/if}
 	{#if infoMessage}
 		<div class="info-bar">{infoMessage}</div>
+	{/if}
+	{#if multiplicityModalVertexIndex !== null && renderedGraph}
+		<Modal
+			title={`Multiplicity of v${multiplicityModalVertexIndex + 1}`}
+			placeholder={['Multiplicity']}
+			labels={['Multiplicity']}
+			initialValues={[String(renderedGraph.multiplicity[multiplicityModalVertexIndex] ?? 1)]}
+			inputTypes={['number']}
+			minValues={['1']}
+			onConfirm={confirmMultiplicityEdit}
+			onCancel={cancelMultiplicityEdit}
+		/>
+	{/if}
+	{#if addVertexPosition !== null}
+		<Modal
+			title="Add vertex"
+			placeholder={['1', '1']}
+			labels={['Number of half-edge arms', 'Multiplicity']}
+			initialValues={['1', '1']}
+			inputTypes={['number', 'number']}
+			minValues={['1', '1']}
+			onConfirm={confirmAddVertex}
+			onCancel={cancelAddVertex}
+		/>
+	{/if}
+	{#if addHalfEdgeAfter !== null}
+		<Modal
+			title={`Add half-edge after ${addHalfEdgeAfter}`}
+			placeholder={['1']}
+			labels={['Number of half-edge arms']}
+			initialValues={['1']}
+			inputTypes={['number']}
+			minValues={['1']}
+			onConfirm={confirmAddHalfEdges}
+			onCancel={cancelAddHalfEdges}
+		/>
 	{/if}
 </section>
 

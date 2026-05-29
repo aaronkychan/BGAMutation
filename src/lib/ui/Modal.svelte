@@ -4,11 +4,19 @@
 	let {
 		title,
 		placeholder,
+		labels,
+		initialValues,
+		inputTypes,
+		minValues,
 		onConfirm,
 		onCancel
 	}: {
 		title: string;
 		placeholder: string[];
+		labels?: string[];
+		initialValues?: string[];
+		inputTypes?: string[];
+		minValues?: string[];
 		onConfirm: (value: string[]) => void;
 		onCancel: () => void;
 	} = $props();
@@ -45,7 +53,7 @@
 	}
 
 	onMount(() => {
-		values = placeholder.map(() => '');
+		values = placeholder.map((_, index) => initialValues?.[index] ?? '');
 		dialogElement.focus();
 		dialogElement.querySelector('input')?.focus();
 	});
@@ -64,11 +72,15 @@
 	<h2>{title}</h2>
 	<div class="inputs">
 		{#each placeholder as inputPlaceholder, index}
-			<input
-				type="text"
-				placeholder={inputPlaceholder}
-				bind:value={values[index]}
-			/>
+			<label>
+				<span>{labels?.[index] ?? inputPlaceholder}</span>
+				<input
+					type={inputTypes?.[index] ?? 'text'}
+					min={minValues?.[index]}
+					placeholder={inputPlaceholder}
+					bind:value={values[index]}
+				/>
+			</label>
 		{/each}
 	</div>
 	<div class="actions">
@@ -110,6 +122,14 @@
 	.inputs {
 		display: grid;
 		gap: 8px;
+	}
+
+	label {
+		display: grid;
+		gap: 5px;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 700;
 	}
 
 	input {

@@ -37,17 +37,9 @@ export function buildElements(
 
 		elements.push({
 			group: 'nodes',
-			data: { id: parentId },
-			classes: 'star-parent',
-			selectable: false,
-			grabbable: false
-		});
-
-		elements.push({
-			group: 'nodes',
 			data: {
 				id: vId,
-				parent: parentId,
+				starId: parentId,
 				vertexIndex,
 				multiplicity,
 				multiplicityLabel: options.showMultiplicityLabels ? String(multiplicity) : ''
@@ -66,16 +58,16 @@ export function buildElements(
 				group: 'nodes',
 				data: {
 					id: uId,
-					parent: parentId,
+					starId: parentId,
 					h: halfEdge,
 					vertexIndex,
 					edgeId,
 					label: options.showHalfEdgeLabels ? String(halfEdge) : ''
 				},
-				position: anchorPosition,
-				classes: `u-node ${options.showHalfEdgeLabels ? 'labeled' : ''}`,
-				grabbable: true
-			});
+					position: anchorPosition,
+					classes: `u-node ${options.showHalfEdgeLabels ? 'labeled' : ''}`,
+					grabbable: true
+				});
 
 			elements.push({
 				group: 'edges',
@@ -103,7 +95,7 @@ export function buildElements(
 
 				elements.push({
 					group: 'nodes',
-					data: { id: oId, parent: parentId, h: halfEdge, vertexIndex, edgeId },
+					data: { id: oId, starId: parentId, h: halfEdge, vertexIndex, edgeId },
 					position: orbifoldPosition,
 					classes: 'orbifold-node',
 					grabbable: true
@@ -134,9 +126,9 @@ export function buildElements(
 		if (orbifoldEdges.has(edge)) continue;
 		const sourceInfo = getAnchorInfo(graph, positions, edge, options);
 		const targetInfo = getAnchorInfo(graph, positions, -edge, options);
-		const controls = sourceInfo && targetInfo
-			? computeArmTangentBezierControls(sourceInfo, targetInfo)
-			: { distances: `${BEZIER_CONTROL_LENGTH} ${-BEZIER_CONTROL_LENGTH}`, weights: '0.25 0.75' };
+		if (!sourceInfo || !targetInfo) continue;
+
+		const controls = computeArmTangentBezierControls(sourceInfo, targetInfo);
 
 		elements.push({
 			group: 'edges',
@@ -191,7 +183,7 @@ export function buildOrderingArrowElements(
 				group: 'nodes',
 				data: {
 					id: orderingArrowPointId(vertexIndex, halfEdge),
-					parent: parentId,
+					starId: parentId,
 					h: halfEdge,
 					vertexIndex
 				},
@@ -244,7 +236,7 @@ function addSingletonOrderingArrow(
 			group: 'nodes',
 			data: {
 				id: orderingArrowPointId(vertexIndex, halfEdge, index),
-				parent: parentId,
+				starId: parentId,
 				h: halfEdge,
 				vertexIndex
 			},
@@ -287,7 +279,7 @@ function addTwoValentOrderingArrows(
 			group: 'nodes',
 			data: {
 				id: orderingArrowPointId(vertexIndex, halfEdge),
-				parent: parentId,
+				starId: parentId,
 				h: halfEdge,
 				vertexIndex
 			},
@@ -301,7 +293,7 @@ function addTwoValentOrderingArrows(
 			group: 'nodes',
 			data: {
 				id: orderingArrowPointId(vertexIndex, halfEdge, 'mid'),
-				parent: parentId,
+				starId: parentId,
 				h: halfEdge,
 				vertexIndex
 			},

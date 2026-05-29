@@ -1,30 +1,76 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte';
+	import { ChevronDown, Keyboard } from 'lucide-svelte';
 
-	const editActions: Array<{ label: string; action: string; enabled: boolean }> = [
-		{ label: 'Add vertex', action: 'add-vertex', enabled: false },
-		{ label: '(Re)connect arc', action: 'reconnect-arc', enabled: false },
-		{ label: 'Add orbifold edge', action: 'add-orbifold-edge', enabled: false },
-		{ label: 'Edit curve', action: 'edit-curve', enabled: false },
-		{ label: 'Adjust emanating angle', action: 'adjust-emanating-angle', enabled: true },
-		{ label: 'Rotate vertex', action: 'rotate-vertex', enabled: false },
-		{ label: 'Undo', action: 'undo', enabled: false },
-		{ label: 'Remove vertex', action: 'remove-vertex', enabled: false },
-		{ label: 'Remove arc/half-edge', action: 'remove-edge', enabled: false },
-		{ label: 'Modify multiplicity', action: 'modify-multiplicity', enabled: false }
+	type CanvasAction = {
+		label: string;
+		action: string;
+		enabled: boolean;
+		key: string;
+	};
+
+	type CanvasActionGroup = {
+		id: string;
+		label: string;
+		key: string;
+		actions: CanvasAction[];
+	};
+
+	const actionGroups: CanvasActionGroup[] = [
+		{
+			id: 'add-edit',
+			label: 'Add/Edit',
+			key: 'A',
+			actions: [
+				{ label: 'Add vertex', action: 'add-vertex', enabled: true, key: 'V' },
+				{ label: 'Add half-edge', action: 'add-half-edge', enabled: true, key: 'H' },
+				{ label: 'Add orbifold edge', action: 'add-orbifold-edge', enabled: true, key: 'O' },
+				{ label: '(Re)connect arcs', action: 'reconnect-arc', enabled: true, key: 'C' },
+				{ label: 'Modify multiplicities', action: 'modify-multiplicity', enabled: true, key: 'M' }
+			]
+		},
+		{
+			id: 'remove',
+			label: 'Remove',
+			key: 'D',
+			actions: [
+				{ label: 'Remove vertex', action: 'remove-vertex', enabled: true, key: 'V' },
+				{ label: 'Remove arc', action: 'remove-arc', enabled: true, key: 'A' },
+				{ label: 'Remove half-edge', action: 'remove-half-edge', enabled: true, key: 'H' }
+			]
+		},
+		{
+			id: 'display-edit',
+			label: 'Display edit',
+			key: 'E',
+			actions: [
+				{ label: 'Adjust emanating angle', action: 'adjust-emanating-angle', enabled: true, key: 'A' },
+				{ label: 'Rotate vertex', action: 'rotate-vertex', enabled: true, key: 'R' },
+				{ label: 'Adjust arc curvature', action: 'adjust-arc-curvature', enabled: true, key: 'C' }
+			]
+		}
 	];
 
 	let {
 		open,
 		activeAction = '',
+		activeGroup = '',
+		armLength = null,
 		onToggle,
-		onAction
+		onAction,
+		onArmLengthChange
 	}: {
 		open: boolean;
 		activeAction?: string;
+		activeGroup?: string;
+		armLength?: number | null;
 		onToggle: () => void;
 		onAction?: (action: string) => void;
+		onArmLengthChange?: (length: number) => void;
 	} = $props();
+
+	function groupTitle(group: CanvasActionGroup) {
+		return `Press ${group.key.toLowerCase()} to select ${group.label}`;
+	}
 </script>
 
 <section class="accordion">
@@ -35,17 +81,54 @@
 
 	{#if open}
 		<div class="button-list" aria-label="Canvas editing tools">
-			{#each editActions as action}
-				<button
-					type="button"
-					class:active={activeAction === action.action}
-					disabled={!action.enabled}
-					title={action.enabled ? action.label : 'Canvas editing is scheduled for a later stage'}
-					onclick={() => onAction?.(action.action)}
-				>
-					{action.label}
-				</button>
+			{#each actionGroups as group}
+				<section class:group-active={activeGroup === group.id} class="action-group" aria-label={group.label}>
+					<div class="group-title" title={groupTitle(group)}>
+						<span>{group.label}</span>
+						<span class="key-hint"><Keyboard size={12} aria-hidden="true" />{group.key}</span>
+					</div>
+
+					{#each group.actions as action}
+						<button
+							type="button"
+							class:active={activeAction === action.action}
+							disabled={!action.enabled}
+							title={action.enabled ? action.label : 'Canvas editing is scheduled for a later stage'}
+							onclick={() => onAction?.(action.action)}
+						>
+							<span>{action.label}</span>
+							<span class="key-hint"><Keyboard size={12} aria-hidden="true" />{action.key}</span>
+						</button>
+					{/each}
+
+					{#if group.id === 'display-edit'}
+						<label class="arm-length-control">
+							<span>Arm length</span>
+							<input
+								type="number"
+								min="14"
+								step="1"
+								value={armLength === null ? '' : Math.round(armLength)}
+								placeholder="--"
+								onchange={(event) => {
+									const value = event.currentTarget.valueAsNumber;
+									if (Number.isFinite(value)) onArmLengthChange?.(value);
+								}}
+							/>
+							<span class="key-hint"><Keyboard size={12} aria-hidden="true" />↑/↓</span>
+						</label>
+					{/if}
+				</section>
 			{/each}
+
+			<button
+				type="button"
+				disabled
+				title="Canvas editing is scheduled for a later stage"
+			>
+				<span>Undo</span>
+				<span class="key-hint"><Keyboard size={12} aria-hidden="true" />Z</span>
+			</button>
 		</div>
 	{/if}
 </section>
@@ -74,11 +157,78 @@
 
 	.button-list {
 		display: grid;
-		gap: 8px;
+		gap: 12px;
 		padding-bottom: 16px;
 	}
 
+	.action-group {
+		display: grid;
+		gap: 7px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 8px;
+		background: color-mix(in srgb, var(--button-bg) 45%, transparent);
+	}
+
+	.action-group.group-active {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+
+	.group-title {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		color: var(--section-title);
+		font-size: 12px;
+		font-weight: 800;
+	}
+
+	.key-hint {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		background: var(--input-bg);
+		color: var(--text-secondary);
+		font-size: 10px;
+		font-weight: 800;
+		line-height: 1;
+		padding: 3px 5px;
+		white-space: nowrap;
+	}
+
+	.arm-length-control {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 76px auto;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.arm-length-control span {
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 700;
+	}
+
+	.arm-length-control input {
+		box-sizing: border-box;
+		width: 100%;
+		height: 34px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--input-bg);
+		color: var(--text-primary);
+		padding: 5px 8px;
+	}
+
 	button:not(.accordion-trigger) {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
 		min-height: 34px;
 		border: 1px solid var(--border);
 		border-radius: 6px;
