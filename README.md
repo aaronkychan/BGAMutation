@@ -1,42 +1,38 @@
-# sv
+# BGAMutation
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+BGAMutation is a SvelteKit web application for drawing and experimenting with
+Brauer graphs and orbifold Brauer graphs. It provides numerical graph input,
+interactive canvas editing, visual display controls, save/load support, and
+animated Kaur mutation of selected edges.
 
-## Creating a project
+The app is intended as a lightweight research and teaching tool for working with
+ribbon graph combinatorics behind Brauer graph algebras and their skew/orbifold
+variants.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Development
 
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-bun x sv@0.15.3 create --template minimal --types ts --install bun .
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Install dependencies:
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+bun install
 ```
 
-## Building
-
-To create a production version of your app:
+Start the local development server:
 
 ```sh
-npm run build
+bun run dev
 ```
 
-You can preview the production build with `npm run preview`.
+Check TypeScript and Svelte diagnostics:
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```sh
+bun run check
+```
+
+Build the static GitHub Pages output:
+
+```sh
+bun run build
+```
+
+The static build is written to `docs/`.

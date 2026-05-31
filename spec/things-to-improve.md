@@ -15,6 +15,13 @@ Make following changes before moving to the next stage (Stage 2).
     - [x] Add "Rotate vertex" button to "Canvas Edit" subpanel. Integrated into `04-ui.md` and `06-canvas-editing.md`.
 - [x] Add "Undo" button and functionality to "Canvas Edit" mode. Integrated into `04-ui.md` and `06-canvas-editing.md`.
 - [x] CSS `label` class in `NumericalAccordion` makes mathematicail notation appeared as a capital letter. We need to force small letter `σ₀` and mulitplicity `m`, etc.
+- [ ] Add a convention / usage instruction entry somewhere in the UI, opened in a modal.
+    - Include conventions for half-edges: $\sigma_1(h)=-h$, with positive integers used as the primary edge labels.
+    - Include conventions for orbifold edges, including a picture of how an orbifold edge is displayed.
+    - Use KaTeX so mathematics in the convention / instruction modal is displayed properly.
+    - Include a link to the GitHub repository for issue reporting.
+    - Include a link to my personal page.
+    - Use a GitHub icon for the repository link.
 
 ## Less urgent / Simple modification
 
