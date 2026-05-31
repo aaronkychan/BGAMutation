@@ -7,9 +7,6 @@
       "dependencies": {
         "@sveltejs/adapter-static": "^3.0.10",
         "cytoscape": "^3.33.3",
-        "cytoscape-context-menus": "^4.2.1",
-        "cytoscape-edge-editing": "^5.0.0",
-        "konva": "8",
         "lucide-svelte": "^1.0.1",
       },
       "devDependencies": {
@@ -115,10 +112,6 @@
 
     "cytoscape": ["cytoscape@3.33.3", "", {}, "sha512-Gej7U+OKR+LZ8kvX7rb2HhCYJ0IhvEFsnkud4SB1PR+BUY/TsSO0dmOW59WEVLu51b1Rm+gQRKoz4bLYxGSZ2g=="],
 
-    "cytoscape-context-menus": ["cytoscape-context-menus@4.2.1", "", { "peerDependencies": { "cytoscape": "^2.7.0 || ^3.0.0" } }, "sha512-h0dXq/DGIQUegC+mncawzFT+zV52I5dxME3fDLqO6cd5pYfx9U+u2YZjn29z8YfRjvayBtsxpD6JUvgiH1ZdaQ=="],
-
-    "cytoscape-edge-editing": ["cytoscape-edge-editing@5.0.0", "", { "peerDependencies": { "cytoscape": "^3.3.0", "konva": "^7.0.3" } }, "sha512-22Lqf++4yLmwVezRVuNGzqlTrl6bwq5uKh4BlxY2Psz7B5Z4zW21RgLIPNPH/NeRSo7nSnkV5/ecgo414OFtgQ=="],
-
     "deepmerge": ["deepmerge@4.3.1", "", {}, "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="],
 
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
@@ -136,8 +129,6 @@
     "is-reference": ["is-reference@3.0.3", "", { "dependencies": { "@types/estree": "^1.0.6" } }, "sha512-ixkJoqQvAP88E6wLydLGGqCJsrFUnqoH6HnaczB8XmDH1oaWU+xxdptvikTgaEhtZ53Ky6YXiBuUI2WXLMCwjw=="],
 
     "kleur": ["kleur@4.1.5", "", {}, "sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ=="],
-
-    "konva": ["konva@8.4.3", "", {}, "sha512-ARqdgAbdNIougRlOKvkQwHlGhXPRBV4KvhCP+qoPpGoVQwwiJe4Hkdu4HHdRPb9rGUp04jDTAxBzEwBsE272pg=="],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 

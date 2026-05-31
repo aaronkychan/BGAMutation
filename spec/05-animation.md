@@ -12,7 +12,7 @@ Animation is visual only. It must not discard current graph-editing state:
 - Do not re-run initial layout before or after animation.
 - After animation, apply the graph update rules in `02-mutation.md`, including preservation of user-positioned vertices, adjusted arm angles, and existing ordinary-edge Bezier controls where applicable.
 - Any ordinary connecting edge created by the post-animation update must use Arm-Tangent Bezier Construction from `03-rendering.md` unless restoring a saved/user-edited control.
-- Restore temporary animation styles without overwriting display-toggle labels/classes, edge-editing control data, or Canvas Edit mode selection state.
+- Restore temporary animation styles without overwriting display-toggle labels/classes, stored Bezier control data, or Canvas Edit mode selection state.
 
 ### User Flow
 

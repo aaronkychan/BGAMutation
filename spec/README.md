@@ -11,6 +11,7 @@ This directory splits the original project specification into task-scoped refere
 - Canvas editing operations: `06-canvas-editing.md`
 - Save/load JSON behavior: `07-save-load.md`
 - Build, dependency, and GitHub Pages setup: `08-deployment.md`
+- Simultaneous mutation implementation plan: `09-simultaneous-mutation.md`
 - Later work and unresolved topics: `backlog.md`
 - Exact archived source document: `original-full-spec.md`
 

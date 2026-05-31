@@ -20,13 +20,13 @@ const file: SavedFile = {
     savedAt: new Date().toISOString(),
     graph: currentGraph,
     cytoscapeJson: cy.json(), // includes node positions
-    edgeAnchors: serializeAnchors(cy), // from cytoscape-edge-editing
+    edgeAnchors: {}, // reserved for future curve-edit metadata
     renderOptions: currentRenderOptions, // display toggles, direction, and initial layout metadata
 };
 ```
 
-`serializeAnchors` calls `edgeEditingInstance.getAnchorsAsArray(edge)` for every `ce-{h}` edge and stores results in a `Record<string, number[]>` keyed by edge ID.
+Bezier control data is stored directly on Cytoscape edge data and is preserved by the Cytoscape JSON snapshot. `edgeAnchors` is currently reserved for future curve-edit metadata.
 
-**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions. Then restore anchor handles via `edgeEditingInstance.initAnchorPoints(edges, controlPositionsFunction)`.
+**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions and saved edge-control data.
 
 **Export / Import**: `fileio.ts` wraps `SavedFile[]` in a JSON file download / `FileReader` upload. Import accepts either a single `SavedFile` object or an array of saved files.

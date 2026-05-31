@@ -24,9 +24,6 @@
 	"dependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",
 		"cytoscape": "^3.33.3",
-		"cytoscape-context-menus": "^4.2.1",
-		"cytoscape-edge-editing": "^5.0.0",
-		"konva": "8",
 		"lucide-svelte": "^1.0.1"
 	}
 }

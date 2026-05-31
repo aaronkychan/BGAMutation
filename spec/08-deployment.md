@@ -9,9 +9,6 @@
 | Adapter                   | **`@sveltejs/adapter-static`**           | Outputs to `docs/` for GitHub Pages; configure `base` path to repo name |
 | Language                  | **TypeScript** (strict mode)             |                                                                         |
 | Graph rendering           | **Cytoscape.js** (`cytoscape`)           | DOM-based graph canvas                                                  |
-| Edge curve editing        | **`cytoscape-edge-editing`**             | Draggable Bezier control handles; requires Konva v8                     |
-| Konva                     | **`konva@8`**                            | Peer dependency of `cytoscape-edge-editing`; pin to v8                  |
-| Context menus             | **`cytoscape-context-menus`**            | Companion for `cytoscape-edge-editing` (right-click add/remove anchors) |
 | Icons                     | **`lucide-svelte`**                      | Lightweight SVG icon set                                                |
 | Styling                   | **Plain CSS** with CSS custom properties | One stylesheet per component; no CSS framework                          |
 | Persistence               | **`localStorage`**                       | Theme preference only                                                   |
@@ -23,7 +20,7 @@
 bunx sv create BGAMutation
 # Choose: SvelteKit minimal, TypeScript, no extra features
 cd BGAMutation
-bun add cytoscape cytoscape-edge-editing cytoscape-context-menus konva@8 lucide-svelte
+bun add cytoscape lucide-svelte
 bun add -d @types/cytoscape
 ```
 
@@ -55,13 +52,7 @@ Add `docs/` to the repository and configure GitHub Pages to serve from the `docs
 Register once in `src/lib/graph/extensions.ts`, imported at app startup:
 
 ```ts
-import cytoscape from "cytoscape";
-import edgeEditing from "cytoscape-edge-editing";
-import contextMenus from "cytoscape-context-menus";
-import Konva from "konva";
-
-cytoscape.use(contextMenus);
-edgeEditing(cytoscape, Konva); // note: different signature from standard use()
+// No Cytoscape extension is required for the current Stage 3 curve editor.
 ```
 
 ### Cytoscape mounting in Svelte 5
@@ -100,7 +91,6 @@ BGAMutation/
 │   │   │   ├── positions.ts      # Circle / grid / line initial layout computation
 │   │   │   ├── extensions.ts     # Register Cytoscape extensions (import once)
 │   │   │   ├── style.ts          # Cytoscape stylesheet factory (reads CSS vars)
-│   │   │   ├── edgeEdit.ts       # cytoscape-edge-editing init & anchor serialisation
 │   │   │   └── animate.ts        # SVG overlay path animation (Stage 2)
 │   │   ├── io/
 │   │   │   ├── serialize.ts      # Graph + canvas state → SavedFile JSON

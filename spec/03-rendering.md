@@ -118,7 +118,7 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Half-edge arms** (`he-p{h}`, `he-m{h}`): straight Cytoscape edges from the vertex node to the anchor node. `curve-style: none` (straight). All share `edgeId` data attribute for the logical edge they belong to. In the cytoscape data, this have source `v-{i}` and target `u-p{h}` (or `u-m{h}`).
 
-**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). Managed by `cytoscape-edge-editing` for draggable anchor handles. `curve-style: unbundled-bezier`. In cytoscape data, we use the convetion that source is `u-p{h}` and target is `u-m{h}`.
+**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). `curve-style: unbundled-bezier`. In Cytoscape data, we use the convention that source is `u-p{h}` and target is `u-m{h}`. User-edited curvature is stored directly on the edge with `controlPointDistances` and `controlPointWeights`.
 
 #### Arm-Tangent Bezier Construction
 
@@ -220,13 +220,13 @@ const file: SavedFile = {
     savedAt: new Date().toISOString(),
     graph: currentGraph,
     cytoscapeJson: cy.json(), // includes node positions
-    edgeAnchors: serializeAnchors(cy), // from cytoscape-edge-editing
+    edgeAnchors: {}, // reserved for future curve-edit metadata
 };
 ```
 
-`serializeAnchors` calls `edgeEditingInstance.getAnchorsAsArray(edge)` for every `ce-{h}` edge and stores results in a `Record<string, number[]>` keyed by edge ID.
+Bezier control data is stored directly on Cytoscape edge data and is therefore preserved by the Cytoscape JSON snapshot. `edgeAnchors` is currently reserved for future curve-edit metadata.
 
-**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions. Then restore anchor handles via `edgeEditingInstance.initAnchorPoints(edges, controlPositionsFunction)`.
+**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions and saved edge-control data.
 
 **Export / Import**: `fileio.ts` wraps `SavedFile[]` in a JSON file download / `FileReader` upload.
 

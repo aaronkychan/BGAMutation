@@ -31,7 +31,7 @@ Canvas Edit mode maintains an undo stack for user-visible edit actions. Before e
 - ordinary edge Bezier control data,
 - current edge/vertex multiplicity display state that is stored on Cytoscape elements.
 
-The **"Undo"** button is disabled when the stack is empty. When clicked, restore the most recent snapshot, update the InfoBox, and leave Canvas Edit mode active. Undo is required for add/remove vertex, remove arc/half-edge, reconnect arc, add orbifold edge, modify multiplicity, adjust emanating angle, rotate vertex, and curve edits.
+The **"Undo"** button is disabled when the stack is empty. When clicked, restore the most recent snapshot, update the InfoBox, keep the Canvas Edit panel open, and return the active tool mode to idle. Undo is required for add/remove vertex, remove arc/half-edge, reconnect arc, add orbifold edge, modify multiplicity, adjust emanating angle, rotate vertex, and curve edits.
 
 ### Edit Buttons
 
@@ -50,8 +50,6 @@ Keyboard shortcuts use a group key followed by an action key:
 - Pressing a group key highlights that group in the Canvas Edit panel.
 - Pressing `Esc` clears the selected group and exits any active Canvas Edit tool such as Half-edge angle or Rotate vertex.
 - Each group and individual function displays its hotkey as a small keyboard-style hint at the right end of the row.
-
-**"Edit curve"**: enters curve-editing mode for `cytoscape-edge-editing`. User can drag anchor handles on connecting curves. Click background to exit.
 
 **"Modify multiplicity"**:
 
@@ -107,7 +105,6 @@ Keyboard shortcuts use a group key followed by an action key:
 - Preserve all remaining vertex and anchor positions.
 - Record the removed arc.
 - Tidy up the Brauer graph data.
-- Keyboard: if a connecting edge is selected, `Delete` or `Backspace` also triggers this.
 
 **"Remove half-edge"**:
 
@@ -149,7 +146,6 @@ Keyboard shortcuts use a group key followed by an action key:
     - If both $h,-h$ are in the same cycle, then remove all their associated half-edge arms, anchor nodes, and connecting edge.
 - Remove also the corresponding ($i$-th) entry from `multiplicity`.
 - Perform tidy up of Brauer graph data.
-- Keyboard: if a vertex node is selected, `Delete` or `Backspace` triggers this.
 - Canvas implementation preserves remaining vertex and anchor positions while rebuilding the affected graph state.
 
 **"Reconnect arc"**:
@@ -184,10 +180,11 @@ Keyboard shortcuts use a group key followed by an action key:
 
 **"Add orbifold edge"**:
 
-- If the current canvas has dangling positive half-edge arms, info bar shows _"Connect to half-edge"_.
+- If the current canvas has any half-edge arms, info bar shows _"Select half-edge to connect."_.
+- If the current canvas has no half-edge arms, info bar shows _"Click to place new vertex connected with orbifold edge."_.
 - Highlight the dangling half-edge arms using the same highlight style as Half-edge angle.
 - User clicks the body of a dangling half-edge arm `he-p{h}` or its corresponding anchor `u-p{h}`. Then create an orbifold end node `orb-x{h}` and connect `u-p{h}` to `orb-x{h}`. Update `orbifoldEdges` by inserting `h`.
-- The info bar also tells the user that clicking blank canvas creates a new orbifold vertex.
+- Clicking blank canvas creates a new orbifold vertex connected with an orbifold edge.
 - If the user clicks blank canvas, create a new one-half-edge orbifold vertex at that clicked position and update `n`, `sigma0`, `multiplicity`, and `orbifoldEdges` accordingly.
 - If the user presses `Esc` during this selection stage, exit the tool and do not connect any half-edge arm.
 - If there are no dangling positive half-edge arms, keep the tool active with the same blank-canvas creation behavior.

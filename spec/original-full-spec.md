@@ -32,9 +32,6 @@ A web application for visualising Brauer graph algebras and their skew generalis
 | Adapter                   | **`@sveltejs/adapter-static`**           | Outputs to `docs/` for GitHub Pages; configure `base` path to repo name |
 | Language                  | **TypeScript** (strict mode)             |                                                                         |
 | Graph rendering           | **Cytoscape.js** (`cytoscape`)           | DOM-based graph canvas                                                  |
-| Edge curve editing        | **`cytoscape-edge-editing`**             | Draggable Bezier control handles; requires Konva v8                     |
-| Konva                     | **`konva@8`**                            | Peer dependency of `cytoscape-edge-editing`; pin to v8                  |
-| Context menus             | **`cytoscape-context-menus`**            | Companion for `cytoscape-edge-editing` (right-click add/remove anchors) |
 | Icons                     | **`lucide-svelte`**                      | Lightweight SVG icon set                                                |
 | Styling                   | **Plain CSS** with CSS custom properties | One stylesheet per component; no CSS framework                          |
 | Persistence               | **`localStorage`**                       | Theme preference only                                                   |
@@ -46,7 +43,7 @@ A web application for visualising Brauer graph algebras and their skew generalis
 bunx sv create BGAMutation
 # Choose: SvelteKit minimal, TypeScript, no extra features
 cd BGAMutation
-bun add cytoscape cytoscape-edge-editing cytoscape-context-menus konva@8 lucide-svelte
+bun add cytoscape lucide-svelte
 bun add -d @types/cytoscape
 ```
 
@@ -79,12 +76,7 @@ Register once in `src/lib/graph/extensions.ts`, imported at app startup:
 
 ```ts
 import cytoscape from "cytoscape";
-import edgeEditing from "cytoscape-edge-editing";
-import contextMenus from "cytoscape-context-menus";
-import Konva from "konva";
-
-cytoscape.use(contextMenus);
-edgeEditing(cytoscape, Konva); // note: different signature from standard use()
+// No Cytoscape extension is required for the current Stage 3 curve editor.
 ```
 
 ### Cytoscape mounting in Svelte 5
@@ -123,7 +115,6 @@ BGAMutation/
 │   │   │   ├── positions.ts      # Circle / grid / line initial layout computation
 │   │   │   ├── extensions.ts     # Register Cytoscape extensions (import once)
 │   │   │   ├── style.ts          # Cytoscape stylesheet factory (reads CSS vars)
-│   │   │   ├── edgeEdit.ts       # cytoscape-edge-editing init & anchor serialisation
 │   │   │   └── animate.ts        # SVG overlay path animation (Stage 2)
 │   │   ├── io/
 │   │   │   ├── serialize.ts      # Graph + canvas state → SavedFile JSON
@@ -532,7 +523,6 @@ Toggling this open disables all content in accordion A. Contains:
 - "Add vertex" button
 - "(Re)connect arc" button
 - "Add orbifold edge" button
-- "Edit curve" button
 - "Remove vertex" button
 - "Remove arc/half-edge" button
 - "Modify multiplicity" button
@@ -641,7 +631,7 @@ Compound nodes (`s-{i}`) group $v_i$ and its leaves logically. Apply compound st
 
 **Half-edge arms** (`he-p{h}`, `he-m{h}`): straight Cytoscape edges from the vertex node to the anchor node. `curve-style: none` (straight). All share `edgeId` data attribute for the logical edge they belong to. In the cytoscape data, this have source `v-{i}` and target `u-p{h}` (or `u-m{h}`).
 
-**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). Managed by `cytoscape-edge-editing` for draggable anchor handles. `curve-style: unbundled-bezier`. In cytoscape data, we use the convetion that source is `u-p{h}` and target is `u-m{h}`. When auto-generating cytoscape graph from numerical data, we take the Bezier curve so that is starts in the same direction of the half-edge arm it connects to in each of its ends.
+**Ordinary connecting edge** (`ce-{h}`): Bezier curve between `u-p{h}` and `u-m{h}` (i.e. between the two anchors of the paired half-edges). `curve-style: unbundled-bezier`. In Cytoscape data, we use the convention that source is `u-p{h}` and target is `u-m{h}`. User-edited curvature is stored directly on the edge with `controlPointDistances` and `controlPointWeights`.
 
 **Orbifold connecting edge** (`ce-orb-{h}`): straight segment from `u-p{h}` to `orb-x{h}`. Length being twice of `ARM_LENGTH`. No Bezier handles.
 
@@ -727,13 +717,13 @@ const file: SavedFile = {
     savedAt: new Date().toISOString(),
     graph: currentGraph,
     cytoscapeJson: cy.json(), // includes node positions
-    edgeAnchors: serializeAnchors(cy), // from cytoscape-edge-editing
+    edgeAnchors: {}, // reserved for future curve-edit metadata
 };
 ```
 
-`serializeAnchors` calls `edgeEditingInstance.getAnchorsAsArray(edge)` for every `ce-{h}` edge and stores results in a `Record<string, number[]>` keyed by edge ID.
+Bezier control data is stored directly on Cytoscape edge data and is preserved by the Cytoscape JSON snapshot. `edgeAnchors` is currently reserved for future curve-edit metadata.
 
-**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions. Then restore anchor handles via `edgeEditingInstance.initAnchorPoints(edges, controlPositionsFunction)`.
+**Load**: Restore `cy.json(cytoscapeJson)` then call `cy.layout({ name: 'preset' }).run()` to honour saved positions and saved edge-control data.
 
 **Export / Import**: `fileio.ts` wraps `SavedFile[]` in a JSON file download / `FileReader` upload.
 
@@ -1126,8 +1116,6 @@ When accordion B ("Edit graph on canvas") is open:
 
 ### Edit Buttons
 
-**"Edit curve"**: enters curve-editing mode for `cytoscape-edge-editing`. User can drag anchor handles on connecting curves. Click background to exit.
-
 **"Modify multiplicity"**:
 
 - If a vertex node is already selected: open prompt and show current multiplicity assigned on the vertex, ask for a new multiplicity and default the input text to be the current multiplicity. Validate user input and change multiplicity on the vertex.
@@ -1141,7 +1129,6 @@ When accordion B ("Edit graph on canvas") is open:
   a. if these include `ce-orb-{h}`, then remove `h` from $\sigma_0$.
   b. if it includes `ce-{h}`, then remove `h` and `-h` from $\sigma_0$.
 - Tidy up the Brauer graph data.
-- Keyboard: if a connecting edge is selected, `Delete` or `Backspace` also triggers this.
 
 **"Add vertex"**:
 
@@ -1160,7 +1147,6 @@ When accordion B ("Edit graph on canvas") is open:
     - If both $h,-h$ are in the same cycle, then remove all their associated half-edge arms, anchor nodes, and connecting edge.
 - Remove also the corresponding ($i$-th) entry from `multiplicity`.
 - Perform tidy up of Brauer graph data.
-- Keyboard: if a vertex node is selected, `Delete` or `Backspace` triggers this.
 
 **"Reconnect arc"**:
 

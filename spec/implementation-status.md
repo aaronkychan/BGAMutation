@@ -24,7 +24,7 @@ Implemented:
     - Initial layout radio group.
     - Grouped predefined examples dropdown.
     - Draw graph and Clear actions.
-- `CanvasAccordion` button list, currently disabled pending canvas editing implementation.
+- `CanvasAccordion` button list scaffold, later completed in Stage 3.
 - `InfoBox` showing current graph type, vertex count, edge count, and orbifold count/genus placeholder.
 - `MutationControls` left/right mutation buttons, enabled once a graph is rendered.
 - `SaveLoad` browser-file workflow:
@@ -48,10 +48,8 @@ Verified:
 
 Known problems / gaps:
 
-1. Canvas editing buttons are present but disabled.
-2. Edge-editing anchor handle data is currently represented by saved Cytoscape edge data; full `cytoscape-edge-editing` anchor serialization will be completed when edge-editing handles are wired.
-3. The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
-4. Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
+1. The in-app browser could not open the Vite dev server at `127.0.0.1:5173` due to `net::ERR_BLOCKED_BY_CLIENT`; verification used a temporary static server over the generated `docs/` output instead.
+2. Earlier verification was accidentally run with `npm run check` and `npm run build` despite `spec/08-deployment.md` requiring Bun. The equivalent Bun commands have now been run successfully, and future commands should use `bun run ...`.
 
 Resolved problems:
 
@@ -60,7 +58,7 @@ Resolved problems:
 
 Problems that do not require immediate resolution:
 
-- Problems 1-2 will be fixed in later stages.
+- Historical Stage 0 gaps have been superseded by later implementation stages.
 
 ## Stage 1: Graph Presentation
 
@@ -113,13 +111,11 @@ Verified:
 
 Known problems / gaps:
 
-1. Cytoscape edge-editing anchor handle initialization is not wired yet.
-2. Full `cytoscape-edge-editing` anchor handle serialization is not wired yet because edge-editing handles are not initialized yet.
-3. Some Canvas Edit polish remains, including in-place reconnect arc Bezier refresh.
+1. Some Canvas Edit polish remains, including in-place reconnect arc Bezier refresh.
 
 Resolved problems:
 
-- `cytoscape-context-menus` references browser globals during module evaluation, which broke static prerender with `ReferenceError: HTMLButtonElement is not defined`. Cytoscape extension imports were moved behind the browser-only mount path in `registerCytoscapeExtensions`.
+- The attempted `cytoscape-edge-editing` / context-menu based curve editor was removed. Stage 3 uses project-owned Cytoscape Bezier control handles instead.
 - Top-priority items from `spec/things-to-improve.md`:
     - Successful `Draw graph` now immediately switches Panel 1 from numerical input to Canvas Edit mode.
     - Anchor nodes are visually hidden by default; half-edge labels can still be displayed without drawing anchor circles.
@@ -132,7 +128,7 @@ Resolved problems:
 
 Problems that do not require immediate resolution:
 
-- Problems 1-3 belong to Canvas Edit or later interactive editing stages.
+- Problem 1 belongs to Canvas Edit polish or later interactive editing stages.
 
 ## Stage 2: Mutation
 
@@ -218,7 +214,7 @@ These items from `spec/things-to-improve.md` have been folded into the canonical
 
 ## Stage 3: Canvas Edit
 
-Status: started
+Status: functionally complete
 
 Implemented:
 
@@ -257,7 +253,7 @@ Implemented:
     - Remove uses `c` for Remove arc and `h` for Remove half-edge.
     - Display edit includes the implemented `Arc curvature` action with reserved hotkey `c`.
     - Implemented Display edit shortcuts: `e` then `h` enters Half-edge angle, `e` then `r` enters Rotate vertex, `e` then `c` enters Arc curvature, and `e` then `ArrowUp` / `ArrowDown` adjusts global arm length.
-    - Planned shortcuts are displayed for disabled tools so the Stage 3 keyboard contract is visible before those actions are implemented.
+    - The Stage 3 keyboard contract is implemented without global Delete/Backspace removal shortcuts; edit actions require explicit tool modes to protect graph structure.
 - `Modify multiplicities`
     - The Add/Edit group button is enabled and enters/exits a dedicated `modify-multiplicity` mode.
     - While waiting for vertex selection, all vertex multiplicity labels are shown temporarily even if the multiplicity-label display toggle is off.
@@ -300,7 +296,7 @@ Implemented:
     - `buildElements` now tolerates dangling half-edge arms by skipping ordinary connecting arcs unless both endpoint anchors exist.
 - `Add orbifold edge`
     - The Add/Edit group button is enabled and enters/exits a dedicated `add-orbifold-edge` mode.
-    - The canvas prompts the user to select a dangling half-edge or click blank space to create a new orbifold vertex.
+    - The canvas prompts the user to select a half-edge when half-edge arms exist, or to click blank space when placing a first orbifold vertex.
     - When dangling positive half-edge arms exist, the canvas highlights them.
     - Clicking a highlighted half-edge arm or anchor converts that half-edge into an orbifold edge, adds the orbifold endpoint/segment in place, and updates `orbifoldEdges`.
     - Pressing `Esc` during selection exits without connecting anything.
@@ -332,3 +328,4 @@ Implemented:
 Pending:
 
 - In-place reconnect arc Bezier refresh polish.
+- Additional browser QA on the final Stage 3 interaction set.
