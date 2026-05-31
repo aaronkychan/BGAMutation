@@ -3,8 +3,15 @@
 	import { computeTopologyMetrics, validateBrauerGraph } from '$lib/math/ribbon';
 	import type { BrauerGraph } from '$lib/math/types';
 
-	let { graph }: { graph: BrauerGraph | null } = $props();
-	let open = $state(true);
+	let {
+		graph,
+		open = true,
+		onToggle
+	}: {
+		graph: BrauerGraph | null;
+		open?: boolean;
+		onToggle?: () => void;
+	} = $props();
 
 	let metrics = $derived(graph ? computeTopologyMetrics(graph) : null);
 	let validationErrors = $derived(graph ? validateBrauerGraph(graph) : []);
@@ -13,9 +20,11 @@
 </script>
 
 <section class="info-box" aria-live="polite">
-	<button class="section-trigger" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+	<button class="section-trigger" type="button" aria-expanded={open} onclick={onToggle}>
 		<span>Graph info</span>
-		<ChevronDown class={open ? 'open' : ''} size={18} />
+		<span class="trigger-tools">
+			<ChevronDown class={open ? 'open' : ''} size={18} />
+		</span>
 	</button>
 	{#if open}
 		{#if graph}
@@ -62,6 +71,15 @@
 
 	:global(.open) {
 		transform: rotate(180deg);
+	}
+
+	.trigger-tools {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.trigger-tools {
+		gap: 8px;
 	}
 
 	p {

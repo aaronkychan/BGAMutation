@@ -32,7 +32,7 @@ A web application for visualising Brauer graph algebras and their skew generalis
 | Adapter                   | **`@sveltejs/adapter-static`**           | Outputs to `docs/` for GitHub Pages; configure `base` path to repo name |
 | Language                  | **TypeScript** (strict mode)             |                                                                         |
 | Graph rendering           | **Cytoscape.js** (`cytoscape`)           | DOM-based graph canvas                                                  |
-| Edge curve editing        | **`cytoscape-edge-editing`**             | Draggable Bezier anchor handles; requires Konva v8                      |
+| Edge curve editing        | **`cytoscape-edge-editing`**             | Draggable Bezier control handles; requires Konva v8                     |
 | Konva                     | **`konva@8`**                            | Peer dependency of `cytoscape-edge-editing`; pin to v8                  |
 | Context menus             | **`cytoscape-context-menus`**            | Companion for `cytoscape-edge-editing` (right-click add/remove anchors) |
 | Icons                     | **`lucide-svelte`**                      | Lightweight SVG icon set                                                |

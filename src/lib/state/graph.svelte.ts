@@ -22,16 +22,27 @@ export interface CanvasSnapshot {
 	edgeAnchors: Record<string, number[]>;
 }
 
+export type ArcCurvatureCommand = 'align-with-half-edge';
+export type CanvasSubAction = 'align-bezier-control';
+
 export const graphState = $state<{
 	graph: BrauerGraph | null;
 	mode: AppMode;
 	getCanvasSnapshot: (() => CanvasSnapshot | null) | null;
+	undoCanvasEdit: (() => void) | null;
+	canUndoCanvasEdit: boolean;
 	armLength: number | null;
 	requestedArmLength: number | null;
+	arcCurvatureCommand: ArcCurvatureCommand | null;
+	activeCanvasSubAction: CanvasSubAction | null;
 }>({
 	graph: null,
 	mode: 'idle',
 	getCanvasSnapshot: null,
+	undoCanvasEdit: null,
+	canUndoCanvasEdit: false,
 	armLength: null,
-	requestedArmLength: null
+	requestedArmLength: null,
+	arcCurvatureCommand: null,
+	activeCanvasSubAction: null
 });

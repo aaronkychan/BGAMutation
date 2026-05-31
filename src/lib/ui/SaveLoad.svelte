@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte';
+	import { ChevronDown, Keyboard } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import { downloadJson, readJsonFile } from '$lib/io/fileio';
 	import { createSavedFile } from '$lib/io/serialize';
@@ -13,11 +13,15 @@
 	let {
 		graph,
 		renderOptions,
-		onLoad
+		onLoad,
+		open = true,
+		onToggle
 	}: {
 		graph: BrauerGraph | null;
 		renderOptions: RenderOptions;
 		onLoad: (savedFile: SavedFile) => void;
+		open?: boolean;
+		onToggle?: () => void;
 	} = $props();
 
 	let savedFiles = $state<SavedFile[]>([]);
@@ -26,7 +30,6 @@
 	let fileInput = $state<HTMLInputElement>();
 	let statusMessage = $state('');
 	let errorMessage = $state('');
-	let open = $state(true);
 
 	let selectedSavedFile = $derived(savedFiles.find((savedFile) => savedFile.savedAt === selectedSavedAt) ?? null);
 	let canSave = $derived(Boolean(graph && graphState.getCanvasSnapshot));
@@ -140,9 +143,12 @@
 </script>
 
 <section class="save-load">
-	<button class="section-trigger" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+	<button class="section-trigger" type="button" aria-expanded={open} onclick={onToggle}>
 		<span>Save / Load</span>
-		<ChevronDown class={open ? 'open' : ''} size={18} />
+		<span class="trigger-tools">
+			<span class="key-hint"><Keyboard size={12} aria-hidden="true" />S</span>
+			<ChevronDown class={open ? 'open' : ''} size={18} />
+		</span>
 	</button>
 	{#if open}
 		{#if savedFiles.length}
@@ -209,6 +215,28 @@
 
 	:global(.open) {
 		transform: rotate(180deg);
+	}
+
+	.trigger-tools,
+	.key-hint {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.trigger-tools {
+		gap: 8px;
+	}
+
+	.key-hint {
+		gap: 3px;
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		background: var(--input-bg);
+		color: var(--text-secondary);
+		font-size: 10px;
+		font-weight: 800;
+		line-height: 1;
+		padding: 3px 5px;
 	}
 
 	label {

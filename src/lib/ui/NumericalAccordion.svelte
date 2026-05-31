@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AlertTriangle, CheckCircle2, ChevronDown, Plus } from 'lucide-svelte';
+	import { AlertTriangle, CheckCircle2, ChevronDown, Keyboard, Plus } from 'lucide-svelte';
 	import { tick } from 'svelte';
 	import { examples } from '$lib/math/examples';
 	import type { BrauerGraph } from '$lib/math/types';
@@ -214,7 +214,10 @@
 <section class:disabled class="accordion">
 	<button class="accordion-trigger" type="button" aria-expanded={open} onclick={onToggle}>
 		<span>Numerical edit</span>
-		<ChevronDown class={open ? 'open' : ''} size={18} />
+		<span class="trigger-tools">
+			<span class="key-hint"><Keyboard size={12} aria-hidden="true" />N</span>
+			<ChevronDown class={open ? 'open' : ''} size={18} />
+		</span>
 	</button>
 
 	{#if open}
@@ -407,6 +410,28 @@
 		padding: 14px 0;
 		font-weight: 700;
 		cursor: pointer;
+	}
+
+	.trigger-tools,
+	.key-hint {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.trigger-tools {
+		gap: 8px;
+	}
+
+	.key-hint {
+		gap: 3px;
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		background: var(--input-bg);
+		color: var(--text-secondary);
+		font-size: 10px;
+		font-weight: 800;
+		line-height: 1;
+		padding: 3px 5px;
 	}
 
 	:global(.open) {

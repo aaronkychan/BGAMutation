@@ -29,7 +29,9 @@
 		errors?: { field: string; message: string }[];
 	} = $props();
 
-	let openAccordion = $state<'numerical' | 'canvas' | null>('numerical');
+	let openAccordion = $state<'numerical' | 'canvas' | null>('canvas');
+	let graphInfoOpen = $state(true);
+	let saveLoadOpen = $state(true);
 	let selectedCanvasGroup = $state<'add-edit' | 'remove' | 'display-edit' | ''>('');
 
 	const groupTriggers: Record<string, typeof selectedCanvasGroup> = {
@@ -41,17 +43,18 @@
 	const groupActions: Record<string, Record<string, string>> = {
 		'add-edit': {
 			v: 'add-vertex',
+			h: 'add-half-edge',
 			o: 'add-orbifold-edge',
 			c: 'reconnect-arc',
 			m: 'modify-multiplicity'
 		},
 		remove: {
 			v: 'remove-vertex',
-			a: 'remove-arc',
+			c: 'remove-arc',
 			h: 'remove-half-edge'
 		},
 		'display-edit': {
-			a: 'adjust-emanating-angle',
+			h: 'adjust-emanating-angle',
 			r: 'rotate-vertex',
 			c: 'adjust-arc-curvature'
 		}
@@ -64,67 +67,93 @@
 	}
 
 	function handleCanvasAction(action: string) {
+		if (action === 'undo') {
+			graphState.activeCanvasSubAction = null;
+			graphState.undoCanvasEdit?.();
+			selectedCanvasGroup = '';
+			return;
+		}
+
+		if (action === 'align-bezier-control') {
+			graphState.mode = 'adjust-arc-curvature';
+			graphState.arcCurvatureCommand = 'align-with-half-edge';
+			graphState.activeCanvasSubAction = 'align-bezier-control';
+			selectedCanvasGroup = 'display-edit';
+			return;
+		}
+
 		if (action === 'adjust-arc-curvature') {
 			graphState.mode = graphState.mode === 'adjust-arc-curvature' ? 'idle' : 'adjust-arc-curvature';
+			graphState.activeCanvasSubAction = null;
 			selectedCanvasGroup = 'display-edit';
 			return;
 		}
 
 		if (action === 'reconnect-arc') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'reconnect-arc' ? 'idle' : 'reconnect-arc';
 			selectedCanvasGroup = 'add-edit';
 			return;
 		}
 
 		if (action === 'remove-half-edge') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'remove-half-edge' ? 'idle' : 'remove-half-edge';
 			selectedCanvasGroup = 'remove';
 			return;
 		}
 
 		if (action === 'remove-arc') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'remove-arc' ? 'idle' : 'remove-arc';
 			selectedCanvasGroup = 'remove';
 			return;
 		}
 
 		if (action === 'remove-vertex') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'remove-vertex' ? 'idle' : 'remove-vertex';
 			selectedCanvasGroup = 'remove';
 			return;
 		}
 
 		if (action === 'add-half-edge') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'add-half-edge' ? 'idle' : 'add-half-edge';
 			selectedCanvasGroup = 'add-edit';
 			return;
 		}
 
 		if (action === 'add-orbifold-edge') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'add-orbifold-edge' ? 'idle' : 'add-orbifold-edge';
 			selectedCanvasGroup = 'add-edit';
 			return;
 		}
 
 		if (action === 'add-vertex') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'add-vertex' ? 'idle' : 'add-vertex';
 			selectedCanvasGroup = 'add-edit';
 			return;
 		}
 
 		if (action === 'modify-multiplicity') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'modify-multiplicity' ? 'idle' : 'modify-multiplicity';
 			selectedCanvasGroup = 'add-edit';
 			return;
 		}
 
 		if (action === 'adjust-emanating-angle') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'adjust-emanating-angle' ? 'idle' : 'adjust-emanating-angle';
 			selectedCanvasGroup = 'display-edit';
 			return;
 		}
 
 		if (action === 'rotate-vertex') {
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = graphState.mode === 'rotate-vertex' ? 'idle' : 'rotate-vertex';
 			selectedCanvasGroup = 'display-edit';
 		}
@@ -140,9 +169,24 @@
 		graphState.requestedArmLength = Math.max(14, Math.round(current + delta));
 	}
 
+	function toggleNumericalEdit() {
+		openAccordion = openAccordion === 'numerical' ? null : 'numerical';
+		selectedCanvasGroup = '';
+		graphState.activeCanvasSubAction = null;
+	}
+
+	function toggleCanvasEdit() {
+		openAccordion = openAccordion === 'canvas' ? null : 'canvas';
+		if (openAccordion !== 'canvas') {
+			selectedCanvasGroup = '';
+			graphState.activeCanvasSubAction = null;
+		}
+	}
+
 	function handleHotkey(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			selectedCanvasGroup = '';
+			graphState.activeCanvasSubAction = null;
 			graphState.mode = 'idle';
 			return;
 		}
@@ -154,6 +198,7 @@
 		if (key === 'z') {
 			openAccordion = 'canvas';
 			selectedCanvasGroup = '';
+			graphState.activeCanvasSubAction = null;
 			handleCanvasAction('undo');
 			event.preventDefault();
 			return;
@@ -176,6 +221,24 @@
 			}
 		}
 
+		if (key === 'n') {
+			toggleNumericalEdit();
+			event.preventDefault();
+			return;
+		}
+
+		if (key === 'g') {
+			toggleCanvasEdit();
+			event.preventDefault();
+			return;
+		}
+
+		if (key === 's') {
+			saveLoadOpen = !saveLoadOpen;
+			event.preventDefault();
+			return;
+		}
+
 		const group = groupTriggers[key];
 		if (group) {
 			openAccordion = 'canvas';
@@ -195,7 +258,7 @@
 		currentGraph={graph}
 		open={openAccordion === 'numerical'}
 		disabled={openAccordion === 'canvas'}
-		onToggle={() => (openAccordion = openAccordion === 'numerical' ? null : 'numerical')}
+		onToggle={toggleNumericalEdit}
 		onDraw={drawAndSwitchToCanvas}
 		{onClear}
 		{renderOptions}
@@ -204,16 +267,24 @@
 	<CanvasAccordion
 		open={openAccordion === 'canvas'}
 		activeAction={graphState.mode === 'adjust-emanating-angle' || graphState.mode === 'adjust-arc-curvature' || graphState.mode === 'rotate-vertex' || graphState.mode === 'modify-multiplicity' || graphState.mode === 'add-vertex' || graphState.mode === 'add-half-edge' || graphState.mode === 'add-orbifold-edge' || graphState.mode === 'reconnect-arc' || graphState.mode === 'remove-vertex' || graphState.mode === 'remove-arc' || graphState.mode === 'remove-half-edge' ? graphState.mode : ''}
+		activeSubAction={graphState.activeCanvasSubAction ?? ''}
 		activeGroup={selectedCanvasGroup}
 		armLength={graphState.armLength}
-		onToggle={() => (openAccordion = openAccordion === 'canvas' ? null : 'canvas')}
+		canUndo={graphState.canUndoCanvasEdit}
+		onToggle={toggleCanvasEdit}
 		onAction={handleCanvasAction}
 		onArmLengthChange={(length) => (graphState.requestedArmLength = length)}
 	/>
 	<DisplayToggles {renderOptions} {onRenderOptionsChange} />
-	<InfoBox {graph} />
+	<InfoBox {graph} open={graphInfoOpen} onToggle={() => (graphInfoOpen = !graphInfoOpen)} />
 	<MutationControls />
-	<SaveLoad {graph} {renderOptions} onLoad={onLoadSavedFile} />
+	<SaveLoad
+		{graph}
+		{renderOptions}
+		open={saveLoadOpen}
+		onToggle={() => (saveLoadOpen = !saveLoadOpen)}
+		onLoad={onLoadSavedFile}
+	/>
 </aside>
 
 <style>

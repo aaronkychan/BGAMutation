@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ChevronDown } from 'lucide-svelte';
 	import type { RenderOptions } from '$lib/graph/types';
 
 	let {
@@ -8,6 +9,8 @@
 		renderOptions: RenderOptions;
 		onRenderOptionsChange: (options: RenderOptions) => void;
 	} = $props();
+
+	let open = $state(true);
 
 	function updateDisplayToggle(
 		toggle: keyof Pick<
@@ -21,41 +24,46 @@
 </script>
 
 <section class="display-toggles" aria-label="Display toggles">
-	<div class="section-title">Display toggles</div>
-	<div class="toggle-list">
-		<label class="switch">
-			<input
-				type="checkbox"
-				checked={renderOptions.showOrderArrows}
-				onchange={(event) => updateDisplayToggle('showOrderArrows', event.currentTarget.checked)}
-			/>
-			Show cyclic ordering as arrows
-		</label>
-		<label class="switch">
-			<input
-				type="checkbox"
-				checked={renderOptions.showHalfEdgeLabels}
-				onchange={(event) => updateDisplayToggle('showHalfEdgeLabels', event.currentTarget.checked)}
-			/>
-			Half-edge labels
-		</label>
-		<label class="switch">
-			<input
-				type="checkbox"
-				checked={renderOptions.showMultiplicityLabels}
-				onchange={(event) => updateDisplayToggle('showMultiplicityLabels', event.currentTarget.checked)}
-			/>
-			Multiplicity labels
-		</label>
-		<label class="switch">
-			<input
-				type="checkbox"
-				checked={renderOptions.showEdgeLabels}
-				onchange={(event) => updateDisplayToggle('showEdgeLabels', event.currentTarget.checked)}
-			/>
-			Edge labels
-		</label>
-	</div>
+	<button class="section-trigger" type="button" aria-expanded={open} onclick={() => (open = !open)}>
+		<span>Display toggles</span>
+		<ChevronDown class={open ? 'open' : ''} size={18} />
+	</button>
+	{#if open}
+		<div class="toggle-list">
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={renderOptions.showOrderArrows}
+					onchange={(event) => updateDisplayToggle('showOrderArrows', event.currentTarget.checked)}
+				/>
+				Show cyclic ordering as arrows
+			</label>
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={renderOptions.showHalfEdgeLabels}
+					onchange={(event) => updateDisplayToggle('showHalfEdgeLabels', event.currentTarget.checked)}
+				/>
+				Half-edge labels
+			</label>
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={renderOptions.showMultiplicityLabels}
+					onchange={(event) => updateDisplayToggle('showMultiplicityLabels', event.currentTarget.checked)}
+				/>
+				Multiplicity labels
+			</label>
+			<label class="switch">
+				<input
+					type="checkbox"
+					checked={renderOptions.showEdgeLabels}
+					onchange={(event) => updateDisplayToggle('showEdgeLabels', event.currentTarget.checked)}
+				/>
+				Edge labels
+			</label>
+		</div>
+	{/if}
 </section>
 
 <style>
@@ -63,18 +71,31 @@
 		display: grid;
 		gap: 10px;
 		border-bottom: 1px solid var(--border);
-		padding: 14px 0 16px;
+		padding: 0;
 	}
 
-	.section-title {
+	.section-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		border: 0;
+		background: transparent;
 		color: var(--section-title);
-		font-size: 12px;
-		font-weight: 800;
+		padding: 14px 0;
+		font-size: 15px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	:global(.open) {
+		transform: rotate(180deg);
 	}
 
 	.toggle-list {
 		display: grid;
 		gap: 8px;
+		padding-bottom: 16px;
 	}
 
 	.switch {

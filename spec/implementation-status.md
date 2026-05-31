@@ -19,7 +19,7 @@ Implemented:
     - Edge-count and orbifold-edge edits preserve existing cycle rows and report out-of-range half-edges immediately.
     - Clickable unused-half-edge info control for the cyclic ordering area.
     - Add vertex action, including focus transfer to the new row's cycle input.
-    - Display toggles moved into a standalone section before Graph info.
+    - Display toggles moved into a standalone accordion section before Graph info.
     - Ordering direction segmented control.
     - Initial layout radio group.
     - Grouped predefined examples dropdown.
@@ -115,7 +115,7 @@ Known problems / gaps:
 
 1. Cytoscape edge-editing anchor handle initialization is not wired yet.
 2. Full `cytoscape-edge-editing` anchor handle serialization is not wired yet because edge-editing handles are not initialized yet.
-3. Canvas Edit mode procedures are specified but not fully implemented yet: Undo, Adjust emanating angle, Rotate vertex, and in-place reconnect arc Bezier refresh.
+3. Some Canvas Edit polish remains, including in-place reconnect arc Bezier refresh.
 
 Resolved problems:
 
@@ -158,7 +158,7 @@ Implemented:
     - Mathematical graph state is published after the canvas update, so panels observe the confirmed result without driving the canvas redraw.
     - New/rebuilt ordinary connecting edges are initialised with Arm-Tangent Bezier Construction.
 - `CanvasAccordion.svelte`
-    - Restored Canvas Edit buttons for `Adjust emanating angle`, `Rotate vertex`, and `Undo` to match `04-ui.md` and `06-canvas-editing.md`.
+    - Restored Canvas Edit buttons for `Half-edge angle`, `Rotate vertex`, and `Undo` to match `04-ui.md` and `06-canvas-editing.md`.
 - `NumericalAccordion.svelte`
     - While Canvas mode owns the rendered graph, the numerical edit fields sync from the current `BrauerGraph`, so post-mutation cyclic orderings are visible when returning to Numerical edit.
 - `src/lib/graph/animate.ts`
@@ -192,7 +192,7 @@ Verified:
 
 Non-blocking follow-up:
 
-1. The Canvas Edit buttons for `Adjust emanating angle`, `Rotate vertex`, and `Undo` are present but still disabled; their interaction implementations belong to Canvas Edit work, not Stage 2 mutation.
+1. Additional Canvas Edit browser QA remains useful after the Stage 3 interaction work.
 2. Additional browser visual QA on complicated orbifold cases is still useful, but the Stage 2 animation behaviour is implemented and has been visually iterated in the app.
 3. The current imperative canvas mutation rebuilds the non-vertex Cytoscape elements broadly. Future Canvas Edit work should narrow this to the changed stars and affected connecting edges while preserving user-edited edge controls.
 
@@ -209,10 +209,10 @@ These items from `spec/things-to-improve.md` have been folded into the canonical
     - Numerical edit uses always-visible `orbifoldEdges` and compact `#ordinary edges` display.
     - Add vertex moves focus to the newly added cycle input.
     - Display toggles update an already-rendered Cytoscape graph in place.
-    - Canvas Edit includes Undo, Adjust emanating angle, and Rotate vertex controls.
+    - Canvas Edit includes Undo, Half-edge angle, and Rotate vertex controls.
 - `spec/06-canvas-editing.md`
     - Undo snapshots graph data, Cytoscape positions, Bezier control data, and relevant display state before mutating canvas edits.
-    - Adjust emanating angle rotates one arm within its current cyclic sector and reapplies Arm-Tangent Bezier Construction to incident ordinary edges.
+    - Half-edge angle rotates one arm within its current cyclic sector and reapplies Arm-Tangent Bezier Construction to incident ordinary edges.
     - Rotate vertex lets the user select a vertex, preview-rotate all emanating arms with pointer movement, confirm with a second click anywhere, and refresh incident ordinary-edge Bezier controls.
     - Reconnect arc must initialise every new ordinary connecting edge with Arm-Tangent Bezier Construction.
 
@@ -222,7 +222,7 @@ Status: started
 
 Implemented:
 
-- `Adjust emanating angle`
+- `Half-edge angle`
     - The Canvas Edit button is enabled and enters/exits a dedicated `adjust-emanating-angle` mode.
     - The canvas highlights all half-edge arms and prompts the user to click an arm.
     - Clicking a half-edge arm selects that arm; clicking a connecting edge selects the nearer endpoint arm.
@@ -230,8 +230,8 @@ Implemented:
     - Movement is clamped to the current sector between neighbouring anchors in the vertex cycle, using current canvas positions rather than regenerated equal spacing.
     - Incident ordinary connecting edges are refreshed with Arm-Tangent Bezier Construction while the anchor moves.
     - If the moved arm is an orbifold half-edge, its orbifold endpoint is moved along the same ray so the orbifold segment remains attached.
-    - A second click anywhere on the canvas confirms the current preview angle, clears the current arm selection, and keeps Adjust emanating angle mode active for selecting another arm.
-    - Pressing `Esc` exits Adjust emanating angle mode and clears temporary highlights.
+    - A second click anywhere on the canvas confirms the current preview angle, clears the current arm selection, and keeps Half-edge angle mode active for selecting another arm.
+    - Pressing `Esc` exits Half-edge angle mode and clears temporary highlights.
     - Outside this dedicated mode, dragging vertex/anchor/orbifold nodes still translates the whole star-shaped subgraph rigidly.
 - `Arm length` numeric control
     - Canvas Edit shows the current average centre-to-anchor arm length.
@@ -252,9 +252,11 @@ Implemented:
     - Canvas Edit actions are displayed in Add/Edit, Remove, and Display edit groups.
     - Group trigger keys are shown as compact keyboard hints and highlight the selected group.
     - `a` selects Add/Edit, `d` selects Remove, `e` selects Display edit, and `Esc` clears the selected group or active tool mode.
+    - Top-level panel hotkeys: `n` opens/closes Numerical edit, `g` opens/closes Edit graph on canvas, and `s` opens/closes Save / Load.
     - Add/Edit includes the implemented `Add half-edge` action with reserved hotkey `h`.
-    - Display edit includes the implemented `Adjust arc curvature` action with reserved hotkey `c`.
-    - Implemented Display edit shortcuts: `e` then `a` enters Adjust emanating angle, `e` then `r` enters Rotate vertex, `e` then `c` enters Adjust arc curvature, and `e` then `ArrowUp` / `ArrowDown` adjusts global arm length.
+    - Remove uses `c` for Remove arc and `h` for Remove half-edge.
+    - Display edit includes the implemented `Arc curvature` action with reserved hotkey `c`.
+    - Implemented Display edit shortcuts: `e` then `h` enters Half-edge angle, `e` then `r` enters Rotate vertex, `e` then `c` enters Arc curvature, and `e` then `ArrowUp` / `ArrowDown` adjusts global arm length.
     - Planned shortcuts are displayed for disabled tools so the Stage 3 keyboard contract is visible before those actions are implemented.
 - `Modify multiplicities`
     - The Add/Edit group button is enabled and enters/exits a dedicated `modify-multiplicity` mode.
@@ -281,13 +283,19 @@ Implemented:
     - The canvas highlights half-edge arms, asks for a source half-edge, then asks for a target half-edge.
     - Confirming the target rewrites `sigma0` according to endpoint sign cases, removes involved orbifold status, compacts labels back to `1..n`, and rebuilds the rendered graph while preserving current positions.
     - New ordinary connecting arcs are produced by the partial-graph tolerant `buildElements` path with Arm-Tangent Bezier controls.
-- `Adjust arc curvature`
+    - Reconnect rebuilds skip old Bezier-control restoration so newly connected arcs are aligned with the selected half-edge arms.
+- `Arc curvature`
     - The Display edit group button is enabled and enters/exits a dedicated `adjust-arc-curvature` mode.
     - The canvas prompts the user to click an ordinary connecting arc.
     - Clicking an arc highlights it with a distinct colour and shows draggable Bezier control-point handles.
     - Dragging a handle updates the selected edge's `controlPointDistances` and `controlPointWeights` live.
     - Clicking another ordinary arc switches the visible handles to that arc.
     - Pressing `Esc` exits the mode and removes the handles.
+    - User-edited Bezier controls are preserved when vertices/stars are dragged and when graph rebuilds keep the same ordinary full edge.
+    - User-edited Bezier controls are not reset by later Half-edge angle or Rotate vertex operations on incident stars.
+    - During rigid star translation, each endpoint-side Bezier control moves with its own anchor's star; controls attached to the unmoved endpoint stay fixed.
+    - The active tool opens a submenu containing only `Align Bezier control with half-edge`.
+    - `Align Bezier control with half-edge` is enabled and asks the user to select the endpoint half-edge anchor/control to align. It rotates only that selected endpoint-side control to the attached half-edge arm direction while preserving distance from its anchor. If no arc is selected, the command first waits for the next ordinary arc click.
 - Partial graph rendering
     - `buildElements` now tolerates dangling half-edge arms by skipping ordinary connecting arcs unless both endpoint anchors exist.
 - `Add orbifold edge`
@@ -315,8 +323,12 @@ Implemented:
     - The Remove group button is enabled and enters/exits a dedicated `remove-half-edge` mode.
     - The canvas highlights all half-edge arms and prompts the user to click a half-edge.
     - Removing a half-edge deletes it from its `sigma0` cycle, removes attached orbifold data if present, drops empty vertex cycles, compacts labels back to `1..n`, and preserves remaining positions.
+- `Undo`
+    - The Undo button and `z` hotkey restore the most recent canvas edit snapshot.
+    - Snapshots include the rendered `BrauerGraph`, Cytoscape JSON, positions, multiplicity display data, and ordinary-edge Bezier control data stored on Cytoscape elements.
+    - Undo is recorded before Half-edge angle, Rotate vertex, Arc curvature drag/align, global arm-length changes, Modify multiplicities, Add vertex, Add half-edge, Add orbifold edge, Reconnect arc, Remove vertex, Remove arc, Remove half-edge, and mutation.
+    - Drawing, clearing, or loading a graph clears the undo stack.
 
 Pending:
 
-- Undo snapshot integration for `Adjust emanating angle`, `Rotate vertex`, `Adjust arc curvature`, global arm-length changes, `Modify multiplicities`, `Add vertex`, `Add half-edge`, `Add orbifold edge`, `Reconnect arc`, `Remove vertex`, `Remove arc`, and `Remove half-edge`.
-- Remaining Canvas Edit tool: Undo.
+- In-place reconnect arc Bezier refresh polish.

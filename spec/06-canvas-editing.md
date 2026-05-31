@@ -16,8 +16,9 @@ Canvas Edit mode owns user-adjusted graph state that later stages must preserve:
 
 - Current vertex positions, anchor positions, orbifold-end positions, and ordinary-edge Bezier controls are state, not disposable render output.
 - Canvas Edit may temporarily hold partial graph states that are not valid Brauer graphs. Rendering must tolerate dangling half-edge arms: draw the vertex, anchor, and arm, but do not draw an ordinary connecting arc unless both endpoint anchors exist.
-- Display-toggle changes, mutation animation cleanup, save/load, and graph updates must not reset these positions or controls.
-- Outside the dedicated **"Adjust emanating angle"** procedure, dragging any node in a star-shaped subgraph translates that star rigidly and does not change arm length.
+- Display-toggle changes, mutation animation cleanup, save/load, and graph updates must not reset these positions or controls for ordinary arcs that still represent the same full edge.
+- Outside the dedicated **"Half-edge angle"** procedure, dragging any node in a star-shaped subgraph translates that star rigidly and does not change arm length or reset user-edited ordinary-edge Bezier controls.
+- During rigid star translation, ordinary-edge Bezier controls are endpoint-relative: a control handle attached to an anchor in the moving star translates with that star, while a control handle attached to an anchor outside the moving star stays fixed.
 - Any procedure that creates or replaces an ordinary connecting edge must either restore saved/user-edited Bezier controls or initialise the edge with Arm-Tangent Bezier Construction from `03-rendering.md`.
 - Every user-visible mutation in Canvas Edit mode records Undo state before changing graph data or Cytoscape elements.
 
@@ -27,7 +28,7 @@ Canvas Edit mode maintains an undo stack for user-visible edit actions. Before e
 
 - current `BrauerGraph` data,
 - Cytoscape JSON including node positions,
-- ordinary edge Bezier anchors/control data,
+- ordinary edge Bezier control data,
 - current edge/vertex multiplicity display state that is stored on Cytoscape elements.
 
 The **"Undo"** button is disabled when the stack is empty. When clicked, restore the most recent snapshot, update the InfoBox, and leave Canvas Edit mode active. Undo is required for add/remove vertex, remove arc/half-edge, reconnect arc, add orbifold edge, modify multiplicity, adjust emanating angle, rotate vertex, and curve edits.
@@ -38,16 +39,16 @@ Canvas edit actions are grouped in accordion B:
 
 - **Add/Edit**: Add vertex, Add half-edge, Add orbifold edge, (Re)connect arcs, Modify multiplicities.
 - **Remove**: Remove vertex, Remove arc, Remove half-edge.
-- **Display edit**: Adjust emanating angle, Rotate vertex, Adjust arc curvature, Arm length.
+- **Display edit**: Half-edge angle, Rotate vertex, Arc curvature, Arm length.
 
 Keyboard shortcuts use a group key followed by an action key:
 
 - `a` selects the Add/Edit group; then `v` = Add vertex, `h` = Add half-edge, `o` = Add orbifold edge, `c` = (Re)connect arcs, `m` = Modify multiplicities.
-- `d` selects the Remove group; then `v` = Remove vertex, `a` = Remove arc, `h` = Remove half-edge.
-- `e` selects the Display edit group; then `a` = Adjust emanating angle, `r` = Rotate vertex, `c` = Adjust arc curvature, `ArrowUp` / `ArrowDown` adjust global arm length.
+- `d` selects the Remove group; then `v` = Remove vertex, `c` = Remove arc, `h` = Remove half-edge.
+- `e` selects the Display edit group; then `h` = Half-edge angle, `r` = Rotate vertex, `c` = Arc curvature, `ArrowUp` / `ArrowDown` adjust global arm length.
 - `z` triggers Undo.
 - Pressing a group key highlights that group in the Canvas Edit panel.
-- Pressing `Esc` clears the selected group and exits any active Canvas Edit tool such as Adjust emanating angle or Rotate vertex.
+- Pressing `Esc` clears the selected group and exits any active Canvas Edit tool such as Half-edge angle or Rotate vertex.
 - Each group and individual function displays its hotkey as a small keyboard-style hint at the right end of the row.
 
 **"Edit curve"**: enters curve-editing mode for `cytoscape-edge-editing`. User can drag anchor handles on connecting curves. Click background to exit.
@@ -62,7 +63,7 @@ Keyboard shortcuts use a group key followed by an action key:
 - After confirming or cancelling the prompt, keep the user in Modify multiplicities mode so the user can choose another vertex. Pressing `Esc` exits the mode.
 - Record the operation for Undo.
 
-**"Adjust emanating angle"**:
+**"Half-edge angle"**:
 
 - Info bar shows _"Click a half-edge arm to adjust its emanating angle."_
 - Highlight all half-edge arms.
@@ -70,7 +71,7 @@ Keyboard shortcuts use a group key followed by an action key:
 - After selection, pointer movement rotates the corresponding anchor node around `v-{i}` while preserving the arm length exactly. The user does not need to keep the mouse button held down after selecting the arm.
 - The anchor's allowed angular interval is constrained to its sector between the neighbouring anchors in the cyclic order around `v-{i}`. In the default generated position for a vertex of degree $k$, anchors start at degree $0$ (12 o'clock) and then appear at increments $\theta = 360/k$ in the cyclic-order direction. If the second anchor is initially at $\theta$, then it may move only between degree $1$ and degree $2\theta - 1$.
 - The sector bounds should be computed from the current neighbouring anchor positions, not from the original generated layout, because users may have already adjusted angles.
-- After selecting an arm, a second click anywhere on the canvas confirms the current preview angle, deselects the current half-edge arm, and keeps the user in Adjust emanating angle mode so the user can immediately choose another arm. Clicking the Adjust emanating angle button again or pressing `Esc` exits the mode.
+- After selecting an arm, a second click anywhere on the canvas confirms the current preview angle, deselects the current half-edge arm, and keeps the user in Half-edge angle mode so the user can immediately choose another arm. Clicking the Half-edge angle button again or pressing `Esc` exits the mode.
 - On confirm/release/deselect/exit, update the anchor position and apply **Arm-Tangent Bezier Construction** from `03-rendering.md` to every ordinary connecting edge incident to the adjusted anchor.
 - Record the operation for Undo.
 
@@ -111,7 +112,7 @@ Keyboard shortcuts use a group key followed by an action key:
 **"Remove half-edge"**:
 
 - Info bar shows _"Click a half-edge to remove it."_
-- Highlight all half-edge arms using the same highlight style as Adjust emanating angle.
+- Highlight all half-edge arms using the same highlight style as Half-edge angle.
 - User clicks a half-edge arm or anchor.
 - Remove that half-edge from its $\sigma_0$ cycle. If this leaves the vertex cycle empty, remove the vertex and its multiplicity entry.
 - Remove the associated half-edge arm and anchor from the canvas. If this half-edge was attached to an orbifold endpoint, remove the orbifold endpoint and its connecting segment. If it was part of an ordinary connecting arc, the arc disappears because one endpoint is now missing.
@@ -131,7 +132,7 @@ Keyboard shortcuts use a group key followed by an action key:
 **"Add half-edge"**:
 
 - Info bar shows _"Select a half-edge to insert after."_
-- Highlight all half-edge arms using the same highlight style as Adjust emanating angle.
+- Highlight all half-edge arms using the same highlight style as Half-edge angle.
 - User clicks a half-edge arm or anchor.
 - Open a numeric up/down prompt asking _"Number of half-edge arms"_ with lower bound `1`.
 - On confirm, increment `n` by the requested count, assign new positive half-edge labels, and insert those labels immediately after the selected half-edge in that vertex's `sigma0` cycle.
@@ -166,7 +167,7 @@ Keyboard shortcuts use a group key followed by an action key:
 - Keyboard (tablet/mobile): selecting an anchor node is understood as initiating this flow.
 - Canvas implementation preserves current vertex and anchor positions while rebuilding the graph state.
 
-**"Adjust arc curvature"**:
+**"Arc curvature"**:
 
 - Info bar shows _"Click an arc to adjust its curvature."_
 - User clicks an ordinary connecting arc.
@@ -177,11 +178,14 @@ Keyboard shortcuts use a group key followed by an action key:
 - Clicking another ordinary arc switches the visible handles to that arc.
 - Pressing `Esc` exits the mode and hides the control-point handles.
 - User-edited curvature is part of Canvas Edit state and must be preserved by display toggles, save/load, and graph updates unless the corresponding arc is removed or replaced.
+- Once an ordinary arc has been edited in Arc curvature mode, later Half-edge angle or Rotate vertex operations must not reset that arc to the default Arm-Tangent Bezier Construction.
+- Choosing Arc curvature opens a submenu under the tool with the command: Align Bezier control with half-edge.
+- **Align Bezier control with half-edge** asks the user to select the endpoint anchor/control to align. If no ordinary arc is selected yet, the command first prompts the user to click an ordinary arc; after that, the user clicks either an endpoint half-edge anchor `u-{hid}` or its endpoint control `uc-{hid}`. Only that selected endpoint-side control is rotated to point in the same direction as the attached half-edge arm, while preserving its current distance from the anchor.
 
 **"Add orbifold edge"**:
 
 - If the current canvas has dangling positive half-edge arms, info bar shows _"Connect to half-edge"_.
-- Highlight the dangling half-edge arms using the same highlight style as Adjust emanating angle.
+- Highlight the dangling half-edge arms using the same highlight style as Half-edge angle.
 - User clicks the body of a dangling half-edge arm `he-p{h}` or its corresponding anchor `u-p{h}`. Then create an orbifold end node `orb-x{h}` and connect `u-p{h}` to `orb-x{h}`. Update `orbifoldEdges` by inserting `h`.
 - The info bar also tells the user that clicking blank canvas creates a new orbifold vertex.
 - If the user clicks blank canvas, create a new one-half-edge orbifold vertex at that clicked position and update `n`, `sigma0`, `multiplicity`, and `orbifoldEdges` accordingly.

@@ -15,7 +15,7 @@
 	import { animateMutation } from '$lib/graph/animate';
 	import { edgeOrbit, mutateGraph, type MutationDirection } from '$lib/math/kaur';
 	import { graphState } from '$lib/state/graph.svelte';
-	import type { BrauerGraph, NodePositions, SavedFile } from '$lib/math/types';
+	import type { BrauerGraph, CytoscapeJson, NodePositions, SavedFile } from '$lib/math/types';
 	import Modal from './Modal.svelte';
 
 	export interface CanvasController {
@@ -31,7 +31,7 @@
 	}: {
 		options: RenderOptions;
 		onCanvasReady?: (controller: CanvasController) => void;
-		onGraphMutated?: (graph: BrauerGraph) => void;
+		onGraphMutated?: (graph: BrauerGraph | null) => void;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -39,12 +39,14 @@
 	let themeObserver: MutationObserver | null = null;
 	let tooltip = $state<{ x: number; y: number; text: string } | null>(null);
 	let infoMessage = $state('');
+	let debugInfoMessage = $state(false);
 	let canvasHasGraph = $state(false);
 	let mutating = false;
 	let adjustingHalfEdge: number | null = null;
 	let adjustModeWasActive = false;
 	let adjustArcCurvatureWasActive = false;
 	let selectedArcId: string | null = null;
+	let pendingArcCurvatureCommand: typeof graphState.arcCurvatureCommand = null;
 	let rotatingVertexIndex: number | null = null;
 	let rotationStartAngle = 0;
 	let rotationStartPositions = new Map<string, { x: number; y: number }>();
@@ -63,12 +65,19 @@
 	let reconnectSourceHalfEdge = $state<number | null>(null);
 	let renderedGraph = $state<BrauerGraph | null>(null);
 	let renderedOptions: RenderOptions | null = null;
+	type UndoSnapshot = {
+		graph: BrauerGraph | null;
+		cytoscapeJson: CytoscapeJson;
+		canvasHasGraph: boolean;
+	};
+	const undoStack: UndoSnapshot[] = [];
 	const MIN_ARM_RADIUS = 14;
 	const FAR_ENOUGH_PX = 48;
 
 	function renderGraph(nextGraph: BrauerGraph | null, renderOptions: RenderOptions = options) {
 		if (!cy || !container) return;
 
+		clearUndoStack();
 		if (!nextGraph) {
 			cy.elements().remove();
 			tooltip = null;
@@ -109,6 +118,77 @@
 		};
 	}
 
+	function cloneGraph(graph: BrauerGraph | null): BrauerGraph | null {
+		if (!graph) return null;
+
+		return {
+			n: graph.n,
+			orbifoldEdges: [...(graph.orbifoldEdges ?? [])],
+			sigma0: graph.sigma0.map((cycle) => [...cycle]),
+			multiplicity: [...graph.multiplicity]
+		};
+	}
+
+	function cloneCytoscapeJson(json: CytoscapeJson): CytoscapeJson {
+		return structuredClone(json);
+	}
+
+	function pushUndoSnapshot() {
+		if (!cy) return;
+
+		undoStack.push({
+			graph: cloneGraph(renderedGraph),
+			cytoscapeJson: cloneCytoscapeJson(cy.json() as CytoscapeJson),
+			canvasHasGraph
+		});
+		graphState.canUndoCanvasEdit = undoStack.length > 0;
+	}
+
+	function undoCanvasEdit() {
+		if (!cy || undoStack.length === 0) return;
+
+		const snapshot = undoStack.pop();
+		if (!snapshot) return;
+
+		clearTransientCanvasState();
+		cy.json(cloneCytoscapeJson(snapshot.cytoscapeJson));
+		cy.layout({ name: 'preset', fit: false }).run();
+		applyStylesheet();
+		renderedGraph = cloneGraph(snapshot.graph);
+		canvasHasGraph = snapshot.canvasHasGraph;
+		renderedOptions = renderedGraph ? { ...options } : null;
+		onGraphMutated?.(renderedGraph);
+		publishCurrentArmLength();
+		graphState.mode = 'idle';
+		graphState.activeCanvasSubAction = null;
+		graphState.canUndoCanvasEdit = undoStack.length > 0;
+		infoMessage = undoStack.length > 0 ? 'Canvas edit undone.' : 'Canvas edit undone. No earlier edits to undo.';
+	}
+
+	function clearUndoStack() {
+		undoStack.length = 0;
+		graphState.canUndoCanvasEdit = false;
+	}
+
+	function clearTransientCanvasState() {
+		tooltip = null;
+		debugInfoMessage = false;
+		adjustingHalfEdge = null;
+		selectedArcId = null;
+		pendingArcCurvatureCommand = null;
+		rotatingVertexIndex = null;
+		rotationStartPositions = new Map();
+		multiplicityModalVertexIndex = null;
+		addVertexPosition = null;
+		addHalfEdgeAfter = null;
+		reconnectSourceHalfEdge = null;
+		highlightHalfEdgeArms(null);
+		highlightVertexNodes(null);
+		highlightVertexArms(null);
+		highlightRemovableArcs(false);
+		clearArcCurvatureHandles();
+	}
+
 	function currentVertexPositions(): NodePositions {
 		const positions: NodePositions = {};
 		if (!cy) return positions;
@@ -123,6 +203,7 @@
 	function renderGraphWithCurrentVertexPositions(nextGraph: BrauerGraph, savedPositions = currentVertexPositions()) {
 		if (!cy) return;
 
+		const savedControls = currentOrdinaryBezierControls();
 		const positions: NodePositions = {};
 		const fallback = fallbackVertexPosition();
 		for (let index = 0; index < nextGraph.sigma0.length; index += 1) {
@@ -134,18 +215,21 @@
 		cy.add(buildElements(nextGraph, positions, options));
 		cy.layout({ name: 'preset', fit: false }).run();
 		restoreVertexPositions(positions);
+		restoreOrdinaryBezierControls(savedControls, nextGraph);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
 		publishCurrentArmLength();
 	}
 
-	function rebuildGraphWithPositions(nextGraph: BrauerGraph, positions: NodePositions) {
+	function rebuildGraphWithPositions(nextGraph: BrauerGraph, positions: NodePositions, preserveBezierControls = true) {
 		if (!cy) return;
 
+		const savedControls = preserveBezierControls ? currentOrdinaryBezierControls() : new Map();
 		cy.elements().remove();
 		cy.add(buildElements(nextGraph, positions, options));
 		cy.layout({ name: 'preset', fit: false }).run();
 		restoreVertexPositions(positions);
+		restoreOrdinaryBezierControls(savedControls, nextGraph);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
 		canvasHasGraph = nextGraph.sigma0.length > 0;
@@ -155,6 +239,7 @@
 	function updateGraphInPlace(nextGraph: BrauerGraph, selected: Set<number>) {
 		if (!cy) return;
 
+		const savedControls = currentOrdinaryBezierControls();
 		const positions = mutationNodePositions(nextGraph, selected);
 		const vertexCount = Object.keys(currentVertexPositions()).length;
 		if (vertexCount !== nextGraph.sigma0.length) {
@@ -182,9 +267,51 @@
 		);
 		cy.layout({ name: 'preset', fit: false }).run();
 		restoreVertexPositions(positions);
+		restoreOrdinaryBezierControls(savedControls, nextGraph);
 		renderedGraph = nextGraph;
 		renderedOptions = { ...options };
 		publishCurrentArmLength();
+	}
+
+	function currentOrdinaryBezierControls() {
+		const controls = new Map<string, { distances: string; weights: string; userEdited: boolean }>();
+		if (!cy) return controls;
+
+		cy.edges('.ordinary-edge').forEach((edge) => {
+			controls.set(edge.id(), {
+				distances: String(edge.data('controlPointDistances') ?? ''),
+				weights: String(edge.data('controlPointWeights') ?? ''),
+				userEdited: edge.data('userEditedBezierControls') === true
+			});
+		});
+
+		return controls;
+	}
+
+	function restoreOrdinaryBezierControls(
+		controls: Map<string, { distances: string; weights: string; userEdited: boolean }>,
+		graph: BrauerGraph
+	) {
+		if (!cy || controls.size === 0) return;
+
+		for (const [id, control] of controls) {
+			const edgeNumber = Number.parseInt(id.replace(/^ce-/, ''), 10);
+			if (!ordinaryArcPresent(graph, edgeNumber)) continue;
+
+			const edge = cy.getElementById(id);
+			if (!edge.nonempty()) continue;
+			edge.data('controlPointDistances', control.distances);
+			edge.data('controlPointWeights', control.weights);
+			edge.data('userEditedBezierControls', control.userEdited);
+		}
+	}
+
+	function ordinaryArcPresent(graph: BrauerGraph, edge: number) {
+		if (!Number.isInteger(edge) || edge <= 0) return false;
+		if (graph.orbifoldEdges?.includes(edge)) return false;
+
+		const halfEdges = new Set(graph.sigma0.flat());
+		return halfEdges.has(edge) && halfEdges.has(-edge);
 	}
 
 	function mutationNodePositions(nextGraph: BrauerGraph, selected: Set<number>): NodePositions {
@@ -425,18 +552,119 @@
 	}
 
 	function translateStar(target: cytoscape.NodeSingular, dx: number, dy: number) {
+		if (!cy) return;
+
 		const starId = target.data('starId');
 		if (!starId) return;
 
+		const preservedControls = translatedStarBezierControls(starId, target, dx, dy);
 		cy
-			?.nodes(`[starId = "${starId}"]`)
+			.nodes(`[starId = "${starId}"]`)
 			.not(target)
 			.positions((node) => ({
 				x: node.position('x') + dx,
 				y: node.position('y') + dy
 			}));
+		applyTranslatedBezierControls(preservedControls);
+	}
 
-		updateIncidentBezierControls(starId);
+	type TranslatedBezierControl = {
+		edgeId: string;
+		points: { x: number; y: number }[];
+		source: { x: number; y: number };
+		target: { x: number; y: number };
+	};
+
+	function translatedStarBezierControls(
+		starId: string,
+		dragTarget: cytoscape.NodeSingular,
+		dx: number,
+		dy: number
+	) {
+		const preserved: TranslatedBezierControl[] = [];
+		if (!cy) return preserved;
+
+		const movedIds = new Set(cy.nodes(`[starId = "${starId}"]`).map((node) => node.id()));
+		cy.edges('.ordinary-edge').forEach((edge) => {
+			const sourceMoved = movedIds.has(edge.source().id());
+			const targetMoved = movedIds.has(edge.target().id());
+			if (!sourceMoved && !targetMoved) return;
+
+			const oldSource = preStarDragPosition(edge.source(), dragTarget, dx, dy);
+			const oldTarget = preStarDragPosition(edge.target(), dragTarget, dx, dy);
+			const controls = controlPositionsForEndpoints(edge, oldSource, oldTarget);
+			if (!controls.length) return;
+
+			preserved.push({
+				edgeId: edge.id(),
+				points: translateBezierControlsByEndpoint(controls, sourceMoved, targetMoved, dx, dy),
+				source: sourceMoved ? offsetPoint(oldSource, dx, dy) : oldSource,
+				target: targetMoved ? offsetPoint(oldTarget, dx, dy) : oldTarget
+			});
+		});
+
+		return preserved;
+	}
+
+	function preStarDragPosition(
+		node: cytoscape.NodeSingular,
+		dragTarget: cytoscape.NodeSingular,
+		dx: number,
+		dy: number
+	) {
+		const position = node.position();
+		return node.id() === dragTarget.id() ? { x: position.x - dx, y: position.y - dy } : position;
+	}
+
+	function translateBezierControlsByEndpoint(
+		controls: { x: number; y: number }[],
+		sourceMoved: boolean,
+		targetMoved: boolean,
+		dx: number,
+		dy: number
+	) {
+		return controls.map((control, index) => {
+			if (controlMovesWithSourceEndpoint(index, controls.length, sourceMoved, targetMoved)) {
+				return offsetPoint(control, dx, dy);
+			}
+			if (controlMovesWithTargetEndpoint(index, controls.length, sourceMoved, targetMoved)) {
+				return offsetPoint(control, dx, dy);
+			}
+			return control;
+		});
+	}
+
+	function controlMovesWithSourceEndpoint(index: number, count: number, sourceMoved: boolean, targetMoved: boolean) {
+		if (!sourceMoved) return false;
+		if (count === 1) return targetMoved;
+		if (isMiddleBezierControl(index, count)) return targetMoved;
+		return index < count / 2;
+	}
+
+	function controlMovesWithTargetEndpoint(index: number, count: number, sourceMoved: boolean, targetMoved: boolean) {
+		if (!targetMoved) return false;
+		if (count === 1) return sourceMoved;
+		if (isMiddleBezierControl(index, count)) return sourceMoved;
+		return index >= count / 2;
+	}
+
+	function isMiddleBezierControl(index: number, count: number) {
+		return count > 1 && count % 2 === 1 && index === Math.floor(count / 2);
+	}
+
+	function applyTranslatedBezierControls(controls: TranslatedBezierControl[]) {
+		if (!cy) return;
+
+		for (const control of controls) {
+			const edge = cy.getElementById(control.edgeId);
+			if (!edge.nonempty()) continue;
+
+			setEdgeControlPoints(edge, control.points, control.source, control.target);
+		}
+	}
+
+	function offsetPoint(point: { x: number; y: number }, dx: number, dy: number) {
+		return { x: point.x + dx, y: point.y + dy };
 	}
 
 	function updateIncidentBezierControls(starId: string) {
@@ -449,17 +677,25 @@
 
 		for (const halfEdge of movedHalfEdges) {
 			const edge = Math.abs(halfEdge);
-			if (renderedGraph.orbifoldEdges?.includes(edge)) continue;
-
-			const sourceInfo = currentAnchorInfo(edge);
-			const targetInfo = currentAnchorInfo(-edge);
 			const connectingEdge = cy.getElementById(connectingEdgeId(edge));
-			if (!sourceInfo || !targetInfo || !connectingEdge.nonempty()) continue;
-
-			const controls = computeArmTangentBezierControls(sourceInfo, targetInfo);
-			connectingEdge.data('controlPointDistances', controls.distances);
-			connectingEdge.data('controlPointWeights', controls.weights);
+			if (connectingEdge.data('userEditedBezierControls') === true) continue;
+			applyArmTangentBezierControls(edge);
 		}
+	}
+
+	function applyArmTangentBezierControls(edge: number) {
+		if (!cy || !renderedGraph || renderedGraph.orbifoldEdges?.includes(edge)) return false;
+
+		const sourceInfo = currentAnchorInfo(edge);
+		const targetInfo = currentAnchorInfo(-edge);
+		const connectingEdge = cy.getElementById(connectingEdgeId(edge));
+		if (!sourceInfo || !targetInfo || !connectingEdge.nonempty()) return false;
+
+		const controls = computeArmTangentBezierControls(sourceInfo, targetInfo);
+		connectingEdge.data('controlPointDistances', controls.distances);
+		connectingEdge.data('controlPointWeights', controls.weights);
+		connectingEdge.data('userEditedBezierControls', false);
+		return true;
 	}
 
 	function currentAnchorInfo(halfEdge: number) {
@@ -482,6 +718,7 @@
 		const halfEdge = halfEdgeForAdjustTarget(event.target, event.position);
 		if (!Number.isInteger(halfEdge)) return;
 
+		pushUndoSnapshot();
 		adjustingHalfEdge = halfEdge;
 		infoMessage = 'Move pointer to adjust the emanating angle. Click blank canvas to finish.';
 		highlightHalfEdgeArms(halfEdge);
@@ -540,51 +777,186 @@
 		selectedArcId = target.id();
 		highlightSelectedArc(target);
 		showArcCurvatureHandles(target);
-		infoMessage = 'Drag Bezier control points to adjust the arc.';
+		if (pendingArcCurvatureCommand === 'align-with-half-edge') {
+			infoMessage = 'Click the endpoint anchor or endpoint Bezier control to align.';
+		} else {
+			infoMessage = 'Drag Bezier control points to adjust the arc.';
+		}
+	}
+
+	function alignSelectedArcWithHalfEdgeArms() {
+		if (!cy || !selectedArcId) {
+			pendingArcCurvatureCommand = 'align-with-half-edge';
+			infoMessage = 'Click an arc, then click the anchor to align.';
+			return;
+		}
+
+		const edge = cy.getElementById(selectedArcId);
+		if (!edge.nonempty()) return;
+
+		infoMessage = 'Click the endpoint anchor or endpoint Bezier control to align.';
+	}
+
+	function alignBezierControlFromSelection(target: cytoscape.SingularElementReturnValue) {
+		if (!cy || !selectedArcId) {
+			alignSelectedArcWithHalfEdgeArms();
+			return;
+		}
+
+		const edge = cy.getElementById(selectedArcId);
+		if (!edge.nonempty()) return;
+
+		const side = arcEndpointSideForTarget(edge, target);
+		if (!side) {
+			infoMessage = 'Select an endpoint anchor or endpoint Bezier control to align.';
+			return;
+		}
+
+		const halfEdge = Number(edge.data('h'));
+		if (!Number.isInteger(halfEdge)) return;
+		pushUndoSnapshot();
+		if (!alignBezierControlDirections(edge, Math.abs(halfEdge), side)) return;
+
+		removeArcCurvatureHandles();
+		showArcCurvatureHandles(edge);
+		pendingArcCurvatureCommand = null;
+		graphState.activeCanvasSubAction = null;
+		infoMessage = 'Bezier control aligned with the selected half-edge arm.';
+	}
+
+	function arcEndpointSideForTarget(edge: cytoscape.SingularElementReturnValue, target: cytoscape.SingularElementReturnValue) {
+		if (target.id() === edge.source().id()) {
+			return 'source' as const;
+		}
+		if (target.id() === edge.target().id()) {
+			return 'target' as const;
+		}
+
+		if (!target.hasClass('curve-control-node')) return null;
+		return controlEndpointSide(Number(target.data('controlIndex')), controlPositionsForEdge(edge).length);
+	}
+
+	function alignBezierControlDirections(edge: cytoscape.SingularElementReturnValue, halfEdge: number, side?: 'source' | 'target') {
+		if (!cy || !renderedGraph || renderedGraph.orbifoldEdges?.includes(halfEdge)) return false;
+
+		const sourceInfo = currentAnchorInfo(halfEdge);
+		const targetInfo = currentAnchorInfo(-halfEdge);
+		if (!sourceInfo || !targetInfo) return false;
+
+		const source = edge.source().position();
+		const target = edge.target().position();
+		const controls = controlPositionsForEndpoints(edge, source, target);
+		if (!controls.length) return false;
+
+		const sourceDirection = unitVector(sourceInfo.vertex, sourceInfo.anchor);
+		const targetDirection = unitVector(targetInfo.vertex, targetInfo.anchor);
+		const nextControls = alignEndpointControlsOnly(edge, controls, source, target, sourceDirection, targetDirection, side);
+
+		setEdgeControlPoints(edge, nextControls, source, target, true);
+		return true;
+	}
+
+	function alignEndpointControlsOnly(
+		edge: cytoscape.SingularElementReturnValue,
+		controls: { x: number; y: number }[],
+		source: { x: number; y: number },
+		target: { x: number; y: number },
+		sourceDirection: { x: number; y: number },
+		targetDirection: { x: number; y: number },
+		side?: 'source' | 'target'
+	) {
+		const nextControls = [...controls];
+		const endpointControls: {
+			control: { x: number; y: number };
+			side: 'source' | 'target';
+			index: number;
+			weight: number;
+		}[] = controls
+			.map((control, index) => ({
+				control,
+				side: controlEndpointSide(index, controls.length),
+				index,
+				weight: projectControlPoint(control, source, target).weight
+			}))
+			.filter((control): control is {
+				control: { x: number; y: number };
+				side: 'source' | 'target';
+				index: number;
+				weight: number;
+			} => control.side !== null)
+			.sort((a, b) => a.weight - b.weight);
+		const sourceControl = endpointControls.find((control) => control.side === 'source') ?? endpointControls[0];
+		const targetControl = endpointControls.findLast((control) => control.side === 'target') ?? endpointControls.at(-1);
+
+		if (sourceControl && side !== 'target') {
+			nextControls[sourceControl.index] = pointAlongDirection(
+				source,
+				sourceDirection,
+				distance(source, sourceControl.control)
+			);
+		}
+
+		if (targetControl && targetControl.index !== sourceControl?.index && side !== 'source') {
+			nextControls[targetControl.index] = pointAlongDirection(
+				target,
+				targetDirection,
+				distance(target, targetControl.control)
+			);
+		}
+
+		return nextControls;
 	}
 
 	function showArcCurvatureHandles(edge: cytoscape.SingularElementReturnValue) {
 		if (!cy) return;
 
+		debugInfoMessage = false;
 		const controls = controlPositionsForEdge(edge);
 		if (!controls.length) return;
 		const sourceId = edge.source().id();
 		const targetId = edge.target().id();
 
 		cy.add(
-			controls.map((position, index) => ({
-				group: 'nodes',
-				data: {
-					id: arcControlId(edge.id(), index),
-					edgeId: edge.id(),
-					controlIndex: index
-				},
-				position,
-				classes: 'curve-control-node',
-				grabbable: true
-			}))
+			controls.flatMap((position, index) => {
+				const side = controlEndpointSide(index, controls.length);
+				return [{
+					group: 'nodes' as const,
+					data: {
+						id: controlNodeId(edge, index, side),
+						edgeId: edge.id(),
+						controlIndex: index
+					},
+					position,
+					classes: 'curve-control-node',
+					grabbable: true
+				}];
+			})
 		);
 		cy.add(
 			controls.flatMap((_, index) => {
-				const controlId = arcControlId(edge.id(), index);
-				if (controls.length === 1) {
-					return [
-						curveControlGuide(edge.id(), index, 'source', sourceId, controlId),
-						curveControlGuide(edge.id(), index, 'target', targetId, controlId)
-					];
-				}
-
-				const endpointId = index < controls.length / 2 ? sourceId : targetId;
-				const side = endpointId === sourceId ? 'source' : 'target';
+				const side = controlEndpointSide(index, controls.length);
+				if (side === null) return [];
+				const controlId = controlNodeId(edge, index, side);
+				const endpointId = side === 'source' ? sourceId : targetId;
 				return [curveControlGuide(edge.id(), index, side, endpointId, controlId)];
 			})
 		);
 	}
 
+	function controlNodeId(
+		edge: cytoscape.SingularElementReturnValue | cytoscape.EdgeSingular,
+		index: number,
+		side: 'source' | 'target' | null
+	) {
+		if (side === 'source') return `uc-${edge.source().id().replace(/^u-/, '')}`;
+		if (side === 'target') return `uc-${edge.target().id().replace(/^u-/, '')}`;
+		return `curve-control-${edge.id()}-${index}`;
+	}
+
 	function curveControlGuide(
 		edgeId: string,
 		index: number,
-		side: 'source' | 'target',
+		side: string,
 		endpointId: string,
 		controlId: string
 	) {
@@ -611,22 +983,46 @@
 			.nodes('.curve-control-node')
 			.filter((node) => node.data('edgeId') === edgeId)
 			.sort((a, b) => Number(a.data('controlIndex')) - Number(b.data('controlIndex')));
-		const projected = handles.map((handle) =>
-			projectControlPoint((handle as cytoscape.NodeSingular).position(), source, target)
-		);
+		setEdgeControlPoints(edge, handles.map((handle) => (handle as cytoscape.NodeSingular).position()), source, target, true);
+	}
+
+	function setEdgeControlPoints(
+		edge: cytoscape.SingularElementReturnValue | cytoscape.EdgeSingular,
+		points: { x: number; y: number }[],
+		source: { x: number; y: number },
+		target: { x: number; y: number },
+		userEdited = false
+	) {
+		const projected = points.map((point) => projectControlPoint(point, source, target));
 		edge.data('controlPointDistances', projected.map((control) => control.distance).join(' '));
 		edge.data('controlPointWeights', projected.map((control) => control.weight).join(' '));
+		if (userEdited) edge.data('userEditedBezierControls', true);
 	}
 
 	function controlPositionsForEdge(edge: cytoscape.SingularElementReturnValue) {
 		const source = edge.source().position();
 		const target = edge.target().position();
+
+		return controlPositionsForEndpoints(edge, source, target);
+	}
+
+	function controlPositionsForEndpoints(
+		edge: cytoscape.SingularElementReturnValue | cytoscape.EdgeSingular,
+		source: { x: number; y: number },
+		target: { x: number; y: number }
+	) {
 		const distances = parseNumberList(String(edge.data('controlPointDistances') ?? ''));
 		const weights = parseNumberList(String(edge.data('controlPointWeights') ?? ''));
 
 		return distances.map((controlDistance, index) =>
 			controlPointPosition(source, target, controlDistance, weights[index] ?? 0.5)
 		);
+	}
+
+	function controlEndpointSide(index: number, count: number): 'source' | 'target' | null {
+		if (count <= 1) return 'source';
+		if (isMiddleBezierControl(index, count)) return null;
+		return index < count / 2 ? 'source' : 'target';
 	}
 
 	function controlPointPosition(
@@ -647,6 +1043,20 @@
 		return {
 			x: source.x + chordX * weight * length + normalX * controlDistance,
 			y: source.y + chordY * weight * length + normalY * controlDistance
+		};
+	}
+
+	function unitVector(from: { x: number; y: number }, to: { x: number; y: number }) {
+		const dx = to.x - from.x;
+		const dy = to.y - from.y;
+		const length = Math.hypot(dx, dy);
+		return length === 0 ? { x: 0, y: 0 } : { x: dx / length, y: dy / length };
+	}
+
+	function pointAlongDirection(origin: { x: number; y: number }, direction: { x: number; y: number }, length: number) {
+		return {
+			x: origin.x + direction.x * length,
+			y: origin.y + direction.y * length
 		};
 	}
 
@@ -697,16 +1107,23 @@
 	}
 
 	function clearArcCurvatureHandles() {
-		cy?.edges('.curve-control-guide').remove();
-		cy?.nodes('.curve-control-node').remove();
+		removeArcCurvatureHandles();
 		highlightSelectedArc(null);
 		selectedArcId = null;
+		debugInfoMessage = false;
+	}
+
+	function removeArcCurvatureHandles() {
+		cy?.edges('.curve-control-guide').remove();
+		cy?.nodes('.curve-control-node').remove();
 	}
 
 	function exitAdjustArcCurvature() {
 		if (graphState.mode !== 'adjust-arc-curvature') return;
 
 		clearArcCurvatureHandles();
+		pendingArcCurvatureCommand = null;
+		graphState.activeCanvasSubAction = null;
 		graphState.mode = 'idle';
 		infoMessage = '';
 	}
@@ -758,6 +1175,7 @@
 	function setAllArmLengths(nextLength: number) {
 		if (!cy || !renderedGraph) return;
 		const targetRadius = Math.max(MIN_ARM_RADIUS, nextLength);
+		pushUndoSnapshot();
 
 		for (const [vertexIndex, cycle] of renderedGraph.sigma0.entries()) {
 			const vertex = cy.getElementById(vertexId(vertexIndex));
@@ -818,6 +1236,7 @@
 		const vertexIndex = Number(event.target.data('vertexIndex'));
 		if (!Number.isInteger(vertexIndex)) return;
 
+		pushUndoSnapshot();
 		rotatingVertexIndex = vertexIndex;
 		const vertexPosition = event.target.position();
 		rotationStartAngle = angleFromNorth(vertexPosition, event.position);
@@ -897,6 +1316,7 @@
 		}
 
 		const vertexIndex = multiplicityModalVertexIndex;
+		pushUndoSnapshot();
 		const nextGraph: BrauerGraph = {
 			...renderedGraph,
 			multiplicity: renderedGraph.multiplicity.map((multiplicity, index) =>
@@ -966,6 +1386,7 @@
 		}
 
 		const currentGraph = renderedGraph ?? { n: 0, orbifoldEdges: [], sigma0: [], multiplicity: [] };
+		pushUndoSnapshot();
 		const vertexIndex = currentGraph.sigma0.length;
 		const cycle = Array.from({ length: halfEdgeCount }, (_, index) => currentGraph.n + index + 1);
 		const nextGraph: BrauerGraph = {
@@ -1022,6 +1443,7 @@
 		const location = findHalfEdgeLocation(addHalfEdgeAfter);
 		if (!location) return;
 
+		pushUndoSnapshot();
 		const newHalfEdges = Array.from({ length: count }, (_, index) => renderedGraph!.n + index + 1);
 		const nextSigma0 = renderedGraph.sigma0.map((cycle, vertexIndex) => {
 			if (vertexIndex !== location.vertexIndex) return [...cycle];
@@ -1087,6 +1509,7 @@
 			...renderedGraph,
 			orbifoldEdges: [...new Set([...(renderedGraph.orbifoldEdges ?? []), halfEdge])].sort((a, b) => a - b)
 		};
+		pushUndoSnapshot();
 		renderedGraph = nextGraph;
 		cy.add(buildOrbifoldElements(nextGraph, halfEdge));
 		onGraphMutated?.(nextGraph);
@@ -1099,6 +1522,7 @@
 		if (!cy) return;
 
 		const currentGraph = renderedGraph ?? { n: 0, orbifoldEdges: [], sigma0: [], multiplicity: [] };
+		pushUndoSnapshot();
 		const edge = currentGraph.n + 1;
 		const vertexIndex = currentGraph.sigma0.length;
 		const nextGraph: BrauerGraph = {
@@ -1258,6 +1682,7 @@
 			multiplicity: graph.multiplicity.filter((_, index) => index !== vertexIndex)
 		};
 
+		pushUndoSnapshot();
 		rebuildGraphWithPositions(nextGraph, nextPositions);
 		onGraphMutated?.(nextGraph);
 		if (graphState.mode === 'remove-vertex') {
@@ -1304,7 +1729,8 @@
 			compact.labelMap
 		);
 
-		rebuildGraphWithPositions(nextGraph, nextPositions);
+		pushUndoSnapshot();
+		rebuildGraphWithPositions(nextGraph, nextPositions, false);
 		onGraphMutated?.(nextGraph);
 		if (graphState.mode === 'remove-arc') {
 			infoMessage = 'Click an arc to remove it.';
@@ -1334,6 +1760,7 @@
 			new Set([edge])
 		);
 
+		pushUndoSnapshot();
 		rebuildGraphWithPositions(nextGraph, nextPositions);
 		onGraphMutated?.(nextGraph);
 		if (graphState.mode === 'remove-arc') {
@@ -1420,6 +1847,7 @@
 			nextVertexIndex += 1;
 		});
 
+		pushUndoSnapshot();
 		rebuildGraphWithPositions(nextGraph, nextPositions);
 		onGraphMutated?.(nextGraph);
 		if (graphState.mode === 'remove-half-edge') {
@@ -1479,7 +1907,8 @@
 			}
 		});
 
-		rebuildGraphWithPositions(nextGraph, nextPositions);
+		pushUndoSnapshot();
+		rebuildGraphWithPositions(nextGraph, nextPositions, false);
 		onGraphMutated?.(nextGraph);
 		reconnectSourceHalfEdge = null;
 		if (graphState.mode === 'reconnect-arc') {
@@ -1636,6 +2065,10 @@
 		return danglingPositiveHalfEdges().length > 0;
 	}
 
+	function hasAnyHalfEdge() {
+		return (renderedGraph?.sigma0.flat().length ?? 0) > 0;
+	}
+
 	function isDanglingPositiveHalfEdge(halfEdge: number) {
 		return danglingPositiveHalfEdges().includes(halfEdge);
 	}
@@ -1670,6 +2103,10 @@
 				'line-opacity': active ? 1 : ''
 			});
 		});
+	}
+
+	function hasRemovableArcs() {
+		return (cy?.edges('.ce-edge').length ?? 0) > 0;
 	}
 
 	function canvasCenterPosition() {
@@ -1928,8 +2365,25 @@
 				target.scratch('previousPosition', { ...current });
 			});
 
+			cy.on('grab', '.curve-control-node', () => {
+				pushUndoSnapshot();
+			});
+
 			cy.on('drag', '.curve-control-node', (event) => {
 				updateArcCurvatureFromHandles(String(event.target.data('edgeId')));
+			});
+
+			cy.on('tap', '.curve-control-node', (event) => {
+				if (graphState.mode === 'adjust-arc-curvature' && pendingArcCurvatureCommand === 'align-with-half-edge') {
+					alignBezierControlFromSelection(event.target);
+				}
+				return;
+			});
+
+			cy.on('tap', '.u-node', (event) => {
+				if (graphState.mode === 'adjust-arc-curvature' && pendingArcCurvatureCommand === 'align-with-half-edge') {
+					alignBezierControlFromSelection(event.target);
+				}
 			});
 
 			cy.on('free', '.v-node, .u-node, .orbifold-node', (event) => {
@@ -1937,6 +2391,7 @@
 			});
 
 			cy.on('tap', '[edgeId]', (event) => {
+				if (event.target.hasClass?.('curve-control-node')) return;
 				if (graphState.mode === 'adjust-arc-curvature') {
 					beginAdjustArcCurvature(event.target);
 					return;
@@ -1986,6 +2441,7 @@
 			cy.on('tap', (event) => {
 				if (String(event.target.data?.('edgeId') ?? '')) return;
 				if (event.target.hasClass?.('v-node')) return;
+				if (event.target.hasClass?.('curve-control-node')) return;
 
 				if (graphState.mode === 'rotate-vertex' && rotatingVertexIndex !== null) {
 					confirmRotateSelection(event.position);
@@ -2014,7 +2470,9 @@
 
 				if (event.target === cy && graphState.mode === 'add-orbifold-edge') {
 					createNewOrbifoldEdge(event.position);
+					return;
 				}
+
 			});
 
 			cy.on('mousemove', (event) => {
@@ -2049,10 +2507,13 @@
 			themeObserver = new MutationObserver(applyStylesheet);
 			themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 			graphState.getCanvasSnapshot = canvasSnapshot;
+			graphState.undoCanvasEdit = undoCanvasEdit;
+			graphState.canUndoCanvasEdit = undoStack.length > 0;
 			onCanvasReady?.({
 				drawGraph: (graph, drawOptions) => renderGraph(graph, drawOptions),
 				clearGraph: () => renderGraph(null),
 				loadSavedFile: (savedFile, loadOptions) => {
+					clearUndoStack();
 					cy?.json(savedFile.cytoscapeJson);
 					cy?.layout({ name: 'preset', fit: false }).run();
 					applyStylesheet();
@@ -2111,8 +2572,21 @@
 		} else if (adjustArcCurvatureWasActive) {
 			adjustArcCurvatureWasActive = false;
 			clearArcCurvatureHandles();
+			pendingArcCurvatureCommand = null;
+			graphState.activeCanvasSubAction = null;
 			if (container && container.style.cursor === 'crosshair') container.style.cursor = '';
 			if (!mutating) infoMessage = '';
+		}
+	});
+
+	$effect(() => {
+		const command = graphState.arcCurvatureCommand;
+		if (command === null) return;
+
+		graphState.arcCurvatureCommand = null;
+		if (command === 'align-with-half-edge') {
+			pendingArcCurvatureCommand = command;
+			alignSelectedArcWithHalfEdgeArms();
 		}
 	});
 
@@ -2195,7 +2669,9 @@
 	$effect(() => {
 		if (graphState.mode === 'add-orbifold-edge') {
 			addOrbifoldWasActive = true;
-			infoMessage = 'Select half-edge to connect, or click blank space to connect to new vertex.';
+			infoMessage = hasAnyHalfEdge()
+				? 'Select half-edge to connect.'
+				: 'Click to place new vertex connected with orbifold edge.';
 			if (hasDanglingPositiveHalfEdges()) {
 				highlightHalfEdgeSet(danglingPositiveHalfEdges());
 			} else {
@@ -2247,6 +2723,11 @@
 		if (graphState.mode === 'remove-arc') {
 			removeArcWasActive = true;
 			if (canvasHasGraph) {
+				if (!hasRemovableArcs()) {
+					infoMessage = 'No arc to remove.';
+					graphState.mode = 'idle';
+					return;
+				}
 				infoMessage = 'Click an arc to remove it.';
 				highlightRemovableArcs();
 			}
@@ -2312,6 +2793,10 @@
 		if (graphState.getCanvasSnapshot === canvasSnapshot) {
 			graphState.getCanvasSnapshot = null;
 		}
+		if (graphState.undoCanvasEdit === undoCanvasEdit) {
+			graphState.undoCanvasEdit = null;
+			graphState.canUndoCanvasEdit = false;
+		}
 		cy?.destroy();
 	});
 
@@ -2324,6 +2809,7 @@
 		if (!Number.isInteger(selectedEdge) || selectedEdge <= 0) return;
 
 		const direction: MutationDirection = graphState.mode === 'select-left-mutation-edge' ? 'left' : 'right';
+		pushUndoSnapshot();
 		mutating = true;
 		infoMessage = 'Invovled edges highlighted';
 
@@ -2399,7 +2885,7 @@
 		</div>
 	{/if}
 	{#if infoMessage}
-		<div class="info-bar">{infoMessage}</div>
+		<div class:debug={debugInfoMessage} class="info-bar">{infoMessage}</div>
 	{/if}
 	{#if multiplicityModalVertexIndex !== null && renderedGraph}
 		<Modal
@@ -2491,6 +2977,13 @@
 		font-size: 13px;
 		transform: translateX(-50%);
 		pointer-events: none;
+	}
+
+	.info-bar.debug {
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 16%, var(--bg-panel));
+		color: var(--danger);
+		font-weight: 700;
 	}
 
 	.placeholder {

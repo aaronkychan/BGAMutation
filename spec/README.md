@@ -22,7 +22,7 @@ Before starting Stage 2 mutation, animation, save/load, or later canvas-editing 
 
 - Existing Cytoscape positions, manually adjusted arm angles, and ordinary-edge Bezier controls are user state. Later stages must preserve them unless the operation explicitly changes them.
 - Anchor nodes are internal controls. They remain invisible in normal rendering, and half-edge arms must visually meet ordinary or orbifold connecting edges at the anchor with no visible anchor-sized gap.
-- Outside the dedicated Adjust emanating angle procedure, dragging a vertex, anchor, or orbifold endpoint translates the whole star-shaped subgraph rigidly.
+- Outside the dedicated Half-edge angle procedure, dragging a vertex, anchor, or orbifold endpoint translates the whole star-shaped subgraph rigidly.
 - Any operation that creates, reconnects, rebuilds, or retargets an ordinary connecting edge must apply Arm-Tangent Bezier Construction from `03-rendering.md`, unless it is explicitly restoring a saved/user-edited Bezier control.
 - Display toggles update the existing Cytoscape graph in place. They must not recompute initial layout or discard manually edited positions and edge controls.
 - Canvas Edit mutations must snapshot undo state before making user-visible changes.
